@@ -1,0 +1,17 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+
+recordings/*
+!recordings/.gitkeep
+data/*
+!data/.gitkeep
+!data/vocabulary.json
+!data/profiles.json
+models/*
+logs/
+daemon.log
+
+.idea/
+.vscode/

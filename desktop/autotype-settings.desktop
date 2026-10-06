@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AutoType Settings
+Comment=Configure AutoType speech-to-text, cleaning, microphone and modes
+Exec=/home/prem/projects/AutoType/open-settings.sh
+Path=/home/prem/projects/AutoType
+Icon=audio-input-microphone
+Terminal=false
+Categories=Settings;Utility;
+Keywords=dictation;stt;microphone;voice;

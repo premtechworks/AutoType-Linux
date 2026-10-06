@@ -1,0 +1,8 @@
+sounddevice
+numpy
+requests
+python-dotenv
+pynput
+deepgram-sdk
+pystray
+pillow
