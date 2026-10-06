@@ -372,13 +372,21 @@ class SettingsWindow(Handy.PreferencesWindow):
         group.add(self.local_stt_expander)
 
         # Action buttons
-        save_stt_row = _button_row("Save STT Settings", "Save active engine settings to .env.")
+        save_stt_row = _button_row(
+            "Save STT Settings",
+            "Save and set current STT engine as the active persistent default.")
         save_stt_row.connect("activated", self._on_stt_save)
         group.add(save_stt_row)
 
         test_row = _button_row("Test STT Connection / Files", "Verify API key or local binary/model files.")
         test_row.connect("activated", self._on_test_stt)
         group.add(test_row)
+
+        reset_stt_row = _button_row(
+            "Reset STT to Defaults",
+            "Restore factory default STT engine (Deepgram Cloud Streaming).")
+        reset_stt_row.connect("activated", self._on_reset_stt)
+        group.add(reset_stt_row)
 
         # Initialize expander visibility
         self._update_stt_visibility()
@@ -499,13 +507,24 @@ class SettingsWindow(Handy.PreferencesWindow):
         if not name:
             name = "Active STT"
         fields = self._stt_fields()
-        self.profiles["stt_profiles"][name] = fields
+        self.profiles["stt_profiles"][name] = dict(fields)
         self.profiles["active_stt"] = name
         store.save_profiles(self.profiles)
         store.save_env(fields)
+        self.env.update(fields)
         self._refresh_combo(self.stt_profile_row.combo,
                             list(self.profiles["stt_profiles"]), name)
-        self.say(f"STT settings ({fields['STT_BACKEND']}) saved to .env. Restart daemon to apply.")
+        self.say(f"STT settings ({fields['STT_BACKEND']}) saved as default. Restart daemon to apply.")
+
+    def _on_reset_stt(self, _row):
+        defaults = store.reset_stt_defaults()
+        self.env.update(defaults)
+        self.profiles = store.load_profiles()
+        self._fill_stt(defaults)
+        active_name = self.profiles.get("active_stt", "Deepgram (Cloud Streaming)")
+        self._refresh_combo(self.stt_profile_row.combo,
+                            list(self.profiles["stt_profiles"]), active_name)
+        self.say("STT settings reset to factory defaults (Deepgram). Restart daemon to apply.")
 
     def _on_test_stt(self, _row):
         fields = self._stt_fields()
@@ -581,79 +600,97 @@ class SettingsWindow(Handy.PreferencesWindow):
         self._build_prompt_section(group)
 
     def _build_clean_section(self, group):
-        names = list(self.profiles["clean_profiles"])
-        active_name = self.profiles.get("active_clean", names[0])
+        self._suppress_clean_changed = True
         try:
-            active_idx = names.index(active_name)
-        except ValueError:
-            active_idx = 0
-        self.clean_profile_row = _combo_row(
-            "Profile Preset", names, active_idx,
-            subtitle="Quick presets for popular providers and custom endpoints.")
-        self.clean_profile_row.combo.connect("changed", self._on_clean_select)
-        group.add(self.clean_profile_row)
+            names = list(self.profiles["clean_profiles"])
+            active_name = self.profiles.get("active_clean", names[0])
+            try:
+                active_idx = names.index(active_name)
+            except ValueError:
+                active_idx = 0
+            self.clean_profile_row = _combo_row(
+                "Profile Preset", names, active_idx,
+                subtitle="Quick presets for popular providers and custom endpoints.")
+            self.clean_profile_row.combo.connect("changed", self._on_clean_select)
+            group.add(self.clean_profile_row)
 
-        cur = self.profiles["clean_profiles"][
-            self._combo_value(self.clean_profile_row.combo)]
+            cur = self.profiles["clean_profiles"].get(
+                self._combo_value(self.clean_profile_row.combo), {})
 
-        # Providers list
-        self.provider_keys = [
-            "openai", "anthropic", "xai", "deepseek", "qwen",
-            "nvidia", "groq", "openrouter", "ollama", "custom"
-        ]
-        provider_labels = [
-            "OpenAI (ChatGPT)",
-            "Anthropic (Claude)",
-            "xAI (Grok)",
-            "DeepSeek",
-            "Qwen (Alibaba DashScope)",
-            "NVIDIA NIM",
-            "Groq",
-            "OpenRouter",
-            "Ollama (Local)",
-            "Custom API Provider (e.g. OmniRoute)",
-        ]
+            # Providers list
+            self.provider_keys = [
+                "openai", "anthropic", "xai", "deepseek", "qwen",
+                "nvidia", "groq", "openrouter", "ollama", "custom"
+            ]
+            provider_labels = [
+                "OpenAI (ChatGPT)",
+                "Anthropic (Claude)",
+                "xAI (Grok)",
+                "DeepSeek",
+                "Qwen (Alibaba DashScope)",
+                "NVIDIA NIM",
+                "Groq",
+                "OpenRouter",
+                "Ollama (Local)",
+                "Custom API Provider (e.g. OmniRoute)",
+            ]
 
-        cur_prov = cur.get("LLM_PROVIDER", "openai").lower()
-        try:
-            prov_idx = self.provider_keys.index(cur_prov)
-        except ValueError:
-            prov_idx = self.provider_keys.index("custom") if "custom" in self.provider_keys else 0
+            # Prioritize active .env provider, then profile, then fallback
+            cur_prov = (self.env.get("LLM_PROVIDER") or cur.get("LLM_PROVIDER", "openai")).lower()
+            try:
+                prov_idx = self.provider_keys.index(cur_prov)
+            except ValueError:
+                prov_idx = self.provider_keys.index("custom") if "custom" in self.provider_keys else 0
 
-        self.clean_provider_row = _combo_row(
-            "API Provider", provider_labels, prov_idx,
-            subtitle="Select the AI provider you want to use for text cleanup.")
-        self.clean_provider_row.combo.connect("changed", self._on_clean_provider_changed)
-        group.add(self.clean_provider_row)
+            self.clean_provider_row = _combo_row(
+                "API Provider", provider_labels, prov_idx,
+                subtitle="Select the AI provider you want to use for text cleanup.")
+            self.clean_provider_row.combo.connect("changed", self._on_clean_provider_changed)
+            group.add(self.clean_provider_row)
 
-        self.f_or_url = _entry_row(
-            "Base URL", cur.get("LLM_BASE_URL") or cur.get("OMNIROUTE_BASE_URL", "https://api.openai.com/v1"),
-            placeholder="https://api.openai.com/v1",
-            tooltip="Base API endpoint (OpenAI /chat/completions or Anthropic /messages).")
-        self.f_or_key = _entry_row(
-            "API Key", cur.get("LLM_API_KEY") or cur.get("OMNIROUTE_API_KEY", ""),
-            secret=True,
-            placeholder="API key for selected provider")
-        self.f_or_model = _entry_row(
-            "Model", cur.get("LLM_MODEL") or cur.get("OMNIROUTE_MODEL", "gpt-4o-mini"),
-            placeholder="gpt-4o-mini",
-            tooltip="Model identifier expected by the provider.")
-        self.f_or_temp = _entry_row(
-            "Temperature",
-            str(cur.get("CLEANING_TEMPERATURE", "0.1")),
-            placeholder="0.1",
-            tooltip="0.0–1.0. Lower = more faithful cleanup.")
+            # Prioritize saved values from cur or self.env
+            init_url = cur.get("LLM_BASE_URL") or self.env.get("LLM_BASE_URL") or cur.get("OMNIROUTE_BASE_URL") or self.env.get("OMNIROUTE_BASE_URL", "https://api.openai.com/v1")
+            init_key = cur.get("LLM_API_KEY") or self.env.get("LLM_API_KEY") or cur.get("OMNIROUTE_API_KEY") or self.env.get("OMNIROUTE_API_KEY", "")
+            init_model = cur.get("LLM_MODEL") or self.env.get("LLM_MODEL") or cur.get("OMNIROUTE_MODEL") or self.env.get("OMNIROUTE_MODEL", "gpt-4o-mini")
+            init_temp = str(cur.get("CLEANING_TEMPERATURE") or self.env.get("CLEANING_TEMPERATURE", "0.1"))
 
-        for r in (self.f_or_url, self.f_or_key, self.f_or_model, self.f_or_temp):
-            group.add(r)
+            self.f_or_url = _entry_row(
+                "Base URL", init_url,
+                placeholder="https://api.openai.com/v1",
+                tooltip="Base API endpoint (OpenAI /chat/completions or Anthropic /messages).")
+            self.f_or_key = _entry_row(
+                "API Key", init_key,
+                secret=True,
+                placeholder="API key for selected provider")
+            self.f_or_model = _entry_row(
+                "Model", init_model,
+                placeholder="gpt-4o-mini",
+                tooltip="Model identifier expected by the provider.")
+            self.f_or_temp = _entry_row(
+                "Temperature", init_temp,
+                placeholder="0.1",
+                tooltip="0.0–1.0. Lower = more faithful cleanup.")
 
-        save_clean_row = _button_row("Save Cleaning Settings", "Save selected provider settings to .env.")
+            for r in (self.f_or_url, self.f_or_key, self.f_or_model, self.f_or_temp):
+                group.add(r)
+        finally:
+            self._suppress_clean_changed = False
+
+        save_clean_row = _button_row(
+            "Save Cleaning Settings",
+            "Save and set current settings as the active persistent default.")
         save_clean_row.connect("activated", self._on_clean_save)
         group.add(save_clean_row)
 
         test_row = _button_row("Test Cleaning Endpoint", "Sends a short test prompt to verify your key and model.")
         test_row.connect("activated", self._on_test_clean)
         group.add(test_row)
+
+        reset_clean_row = _button_row(
+            "Reset Cleaning to Defaults",
+            "Restore factory default settings (OpenAI gpt-4o-mini).")
+        reset_clean_row.connect("activated", self._on_reset_clean)
+        group.add(reset_clean_row)
 
     def _clean_fields(self):
         try:
@@ -681,27 +718,31 @@ class SettingsWindow(Handy.PreferencesWindow):
         }
 
     def _fill_clean(self, prof):
-        prov = prof.get("LLM_PROVIDER", "").lower()
-        if not prov and prof.get("OMNIROUTE_BASE_URL"):
-            prov = "custom"
-        elif not prov:
-            prov = "openai"
-
+        self._suppress_clean_changed = True
         try:
-            idx = self.provider_keys.index(prov)
-            self.clean_provider_row.combo.set_active(idx)
-        except ValueError:
-            self.clean_provider_row.combo.set_active(len(self.provider_keys) - 1)
+            prov = prof.get("LLM_PROVIDER", "").lower()
+            if not prov and (prof.get("OMNIROUTE_BASE_URL") or prof.get("LLM_BASE_URL")):
+                prov = "custom"
+            elif not prov:
+                prov = "openai"
 
-        url = prof.get("LLM_BASE_URL") or prof.get("OMNIROUTE_BASE_URL", "")
-        key = prof.get("LLM_API_KEY") or prof.get("OMNIROUTE_API_KEY", "")
-        model = prof.get("LLM_MODEL") or prof.get("OMNIROUTE_MODEL", "")
-        temp = str(prof.get("CLEANING_TEMPERATURE", "0.1"))
+            try:
+                idx = self.provider_keys.index(prov)
+                self.clean_provider_row.combo.set_active(idx)
+            except ValueError:
+                self.clean_provider_row.combo.set_active(len(self.provider_keys) - 1)
 
-        self.f_or_url.entry.set_text(url)
-        self.f_or_key.entry.set_text(key)
-        self.f_or_model.entry.set_text(model)
-        self.f_or_temp.entry.set_text(temp)
+            url = prof.get("LLM_BASE_URL") or prof.get("OMNIROUTE_BASE_URL", "")
+            key = prof.get("LLM_API_KEY") or prof.get("OMNIROUTE_API_KEY", "")
+            model = prof.get("LLM_MODEL") or prof.get("OMNIROUTE_MODEL", "")
+            temp = str(prof.get("CLEANING_TEMPERATURE", "0.1"))
+
+            self.f_or_url.entry.set_text(url)
+            self.f_or_key.entry.set_text(key)
+            self.f_or_model.entry.set_text(model)
+            self.f_or_temp.entry.set_text(temp)
+        finally:
+            self._suppress_clean_changed = False
 
     def _on_clean_select(self, combo):
         prof = self.profiles["clean_profiles"].get(self._combo_value(combo))
@@ -709,23 +750,66 @@ class SettingsWindow(Handy.PreferencesWindow):
             self._fill_clean(prof)
 
     def _on_clean_provider_changed(self, combo):
+        if getattr(self, "_suppress_clean_changed", False):
+            return
         idx = combo.get_active()
         if 0 <= idx < len(self.provider_keys):
             prov_key = self.provider_keys[idx]
-            cfg = PROVIDER_CONFIGS.get(prov_key)
-            if cfg and prov_key != "custom":
-                self.f_or_url.entry.set_text(cfg["base_url"])
-                self.f_or_model.entry.set_text(cfg["default_model"])
-                self.f_or_key.entry.set_placeholder_text(f"API key for {cfg['name']}")
+            if prov_key == "custom":
+                custom_prof = self.profiles.get("clean_profiles", {}).get("Custom API Provider", {})
+                custom_url = custom_prof.get("LLM_BASE_URL") or self.env.get("LLM_BASE_URL") or self.env.get("OMNIROUTE_BASE_URL") or "http://127.0.0.1:20128/v1"
+                custom_model = custom_prof.get("LLM_MODEL") or self.env.get("LLM_MODEL") or self.env.get("OMNIROUTE_MODEL") or "auto"
+                custom_key = custom_prof.get("LLM_API_KEY") or self.env.get("LLM_API_KEY") or self.env.get("OMNIROUTE_API_KEY") or ""
+                self.f_or_url.entry.set_text(custom_url)
+                self.f_or_model.entry.set_text(custom_model)
+                self.f_or_key.entry.set_text(custom_key)
+                self.f_or_key.entry.set_placeholder_text("API key (optional for local endpoints)")
+            else:
+                cfg = PROVIDER_CONFIGS.get(prov_key)
+                if cfg:
+                    prof_name = cfg["name"]
+                    saved_prof = self.profiles.get("clean_profiles", {}).get(prof_name, {})
+                    self.f_or_url.entry.set_text(saved_prof.get("LLM_BASE_URL") or cfg["base_url"])
+                    self.f_or_model.entry.set_text(saved_prof.get("LLM_MODEL") or cfg["default_model"])
+                    self.f_or_key.entry.set_text(saved_prof.get("LLM_API_KEY") or "")
+                    self.f_or_key.entry.set_placeholder_text(f"API key for {cfg['name']}")
 
     def _on_clean_save(self, _row=None):
-        name = self._combo_value(self.clean_profile_row.combo) or "Custom"
         fields = self._clean_fields()
-        self.profiles["clean_profiles"][name] = fields
-        self.profiles["active_clean"] = name
+        prov_key = fields["LLM_PROVIDER"]
+        provider_label = self._combo_value(self.clean_provider_row.combo)
+        preset_name = self._combo_value(self.clean_profile_row.combo) or "Custom API Provider"
+
+        # Save to both current preset and provider-specific preset
+        self.profiles["clean_profiles"][preset_name] = dict(fields)
+        if prov_key == "custom":
+            self.profiles["clean_profiles"]["Custom API Provider"] = dict(fields)
+            self.profiles["active_clean"] = "Custom API Provider"
+        else:
+            for p_name in self.profiles["clean_profiles"]:
+                if prov_key in p_name.lower():
+                    self.profiles["clean_profiles"][p_name] = dict(fields)
+                    self.profiles["active_clean"] = p_name
+                    break
+            else:
+                self.profiles["active_clean"] = preset_name
+
         store.save_profiles(self.profiles)
         store.save_env(fields)
-        self.say(f"Cleaning settings ({fields['LLM_PROVIDER']}) saved to .env.")
+        self.env.update(fields)
+        self._refresh_combo(self.clean_profile_row.combo,
+                            list(self.profiles["clean_profiles"]), self.profiles["active_clean"])
+        self.say(f"Cleaning settings saved as default ({provider_label}).")
+
+    def _on_reset_clean(self, _row=None):
+        defaults = store.reset_clean_defaults()
+        self.env.update(defaults)
+        self.profiles = store.load_profiles()
+        self._fill_clean(defaults)
+        active_name = self.profiles.get("active_clean", "OpenAI (ChatGPT)")
+        self._refresh_combo(self.clean_profile_row.combo,
+                            list(self.profiles["clean_profiles"]), active_name)
+        self.say("Cleaning settings reset to factory defaults (OpenAI).")
 
     def _on_test_clean(self, _row):
         self.say("Testing cleaning endpoint…")

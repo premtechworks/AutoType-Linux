@@ -87,31 +87,64 @@ DEFAULTS = {
 # -- .env ---------------------------------------------------------------
 
 def load_env() -> dict[str, str]:
-    values: dict[str, str] = dict(DEFAULTS)
-    if not ENV_PATH.exists():
-        return values
-    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        key = key.strip()
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            values[key] = val.strip().strip("'\"")
+    """Parse .env directly into a clean dict, prioritizing existing user settings."""
+    raw: dict[str, str] = {}
+    if ENV_PATH.exists():
+        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                raw[key] = val.strip().strip("'\"")
 
-    # Map legacy OMNIROUTE keys to LLM_* if LLM_* not set
-    if "OMNIROUTE_BASE_URL" in values and "LLM_BASE_URL" not in values:
-        values["LLM_BASE_URL"] = values["OMNIROUTE_BASE_URL"]
-    if "OMNIROUTE_API_KEY" in values and "LLM_API_KEY" not in values:
-        values["LLM_API_KEY"] = values["OMNIROUTE_API_KEY"]
-    if "OMNIROUTE_MODEL" in values and "LLM_MODEL" not in values:
-        values["LLM_MODEL"] = values["OMNIROUTE_MODEL"]
-    if "LLM_PROVIDER" not in values:
-        if values.get("OMNIROUTE_BASE_URL"):
-            values["LLM_PROVIDER"] = "custom"
+    # 1. Backwards compatibility for LLM Cleaning Provider:
+    has_omniroute = bool(raw.get("OMNIROUTE_BASE_URL") or raw.get("OMNIROUTE_API_KEY") or raw.get("OMNIROUTE_MODEL"))
+
+    if "LLM_PROVIDER" not in raw:
+        if has_omniroute:
+            raw["LLM_PROVIDER"] = "custom"
         else:
-            values["LLM_PROVIDER"] = "openai"
+            raw["LLM_PROVIDER"] = DEFAULTS["LLM_PROVIDER"]
 
+    if "LLM_BASE_URL" not in raw:
+        if raw.get("OMNIROUTE_BASE_URL"):
+            raw["LLM_BASE_URL"] = raw["OMNIROUTE_BASE_URL"]
+        else:
+            raw["LLM_BASE_URL"] = DEFAULTS.get("LLM_BASE_URL", "")
+
+    if "LLM_API_KEY" not in raw:
+        if raw.get("OMNIROUTE_API_KEY"):
+            raw["LLM_API_KEY"] = raw["OMNIROUTE_API_KEY"]
+        else:
+            raw["LLM_API_KEY"] = ""
+
+    if "LLM_MODEL" not in raw:
+        if raw.get("OMNIROUTE_MODEL"):
+            raw["LLM_MODEL"] = raw["OMNIROUTE_MODEL"]
+        else:
+            raw["LLM_MODEL"] = DEFAULTS.get("LLM_MODEL", "gpt-4o-mini")
+
+    # Keep OMNIROUTE_* synced with LLM_*
+    if "LLM_BASE_URL" in raw and "OMNIROUTE_BASE_URL" not in raw:
+        raw["OMNIROUTE_BASE_URL"] = raw["LLM_BASE_URL"]
+    if "LLM_API_KEY" in raw and "OMNIROUTE_API_KEY" not in raw:
+        raw["OMNIROUTE_API_KEY"] = raw["LLM_API_KEY"]
+    if "LLM_MODEL" in raw and "OMNIROUTE_MODEL" not in raw:
+        raw["OMNIROUTE_MODEL"] = raw["LLM_MODEL"]
+
+    # 2. Backwards compatibility for STT:
+    if "STT_BACKEND" not in raw:
+        raw["STT_BACKEND"] = DEFAULTS["STT_BACKEND"]
+    if raw.get("STT_BACKEND") in ("parakeet", "parakeet_stream"):
+        raw["STT_TYPE"] = "local"
+    else:
+        raw["STT_TYPE"] = "cloud"
+
+    # Fill in any missing default keys without overriding raw values
+    values = dict(DEFAULTS)
+    values.update(raw)
     return values
 
 
@@ -201,6 +234,13 @@ def _seed_profiles(env: dict[str, str]) -> dict:
 
     # Cleaning LLM profiles
     clean_profiles = {
+        "Custom API Provider": dict(
+            clean_base,
+            LLM_PROVIDER="custom",
+            LLM_BASE_URL=env.get("OMNIROUTE_BASE_URL") or env.get("LLM_BASE_URL") or "http://127.0.0.1:20128/v1",
+            LLM_API_KEY=env.get("OMNIROUTE_API_KEY") or env.get("LLM_API_KEY") or "",
+            LLM_MODEL=env.get("OMNIROUTE_MODEL") or env.get("LLM_MODEL") or "auto",
+        ),
         "OpenAI (ChatGPT)": dict(
             clean_base,
             LLM_PROVIDER="openai",
@@ -243,6 +283,12 @@ def _seed_profiles(env: dict[str, str]) -> dict:
             LLM_BASE_URL="https://api.groq.com/openai/v1",
             LLM_MODEL="llama-3.3-70b-versatile",
         ),
+        "OpenRouter": dict(
+            clean_base,
+            LLM_PROVIDER="openrouter",
+            LLM_BASE_URL="https://openrouter.ai/api/v1",
+            LLM_MODEL="meta-llama/llama-3.3-70b-instruct",
+        ),
         "Ollama (Local)": dict(
             clean_base,
             LLM_PROVIDER="ollama",
@@ -250,59 +296,163 @@ def _seed_profiles(env: dict[str, str]) -> dict:
             LLM_MODEL="llama3.2",
             LLM_API_KEY="",
         ),
-        "Custom API Provider": dict(
-            clean_base,
-            LLM_PROVIDER="custom",
-            LLM_BASE_URL=env.get("OMNIROUTE_BASE_URL", "http://127.0.0.1:20128/v1"),
-            LLM_API_KEY=env.get("OMNIROUTE_API_KEY", ""),
-            LLM_MODEL=env.get("OMNIROUTE_MODEL", "auto"),
-        ),
     }
 
-    # If env has specific settings, preserve them
-    active_clean = "Custom API Provider" if env.get("OMNIROUTE_BASE_URL") else "OpenAI (ChatGPT)"
+    # Determine active profiles from .env
+    is_custom = env.get("LLM_PROVIDER") == "custom" or bool(env.get("OMNIROUTE_BASE_URL"))
+    active_clean = "Custom API Provider" if is_custom else "OpenAI (ChatGPT)"
+
+    stt_backend = env.get("STT_BACKEND", "deepgram")
+    if stt_backend == "parakeet_stream":
+        active_stt = "Parakeet Stream (Local Offline)"
+    elif stt_backend == "parakeet":
+        active_stt = "Parakeet Batch (Local Offline)"
+    elif stt_backend == "groq":
+        active_stt = "Groq Whisper (Cloud Fast)"
+    elif stt_backend in ("whisper", "openai"):
+        active_stt = "OpenAI Whisper (Cloud)"
+    elif stt_backend == "nvidia":
+        active_stt = "NVIDIA Cloud ASR"
+    else:
+        active_stt = "Deepgram (Cloud Streaming)"
 
     return {
         "stt_profiles": stt_profiles,
-        "active_stt": "Deepgram (Cloud Streaming)",
+        "active_stt": active_stt,
         "clean_profiles": clean_profiles,
         "active_clean": active_clean,
     }
 
 
 def load_profiles() -> dict:
+    """Load gui_settings.json, always ensuring active profiles match the current .env state."""
     env = load_env()
+    seeded = _seed_profiles(env)
+
     try:
         if PROFILES_PATH.exists():
             data = json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and "stt_profiles" in data:
-                # Backfill any new fields
-                for prof in data.get("stt_profiles", {}).values():
-                    for k in STT_FIELDS:
-                        prof.setdefault(k, env.get(k, DEFAULTS.get(k, "")))
-                for prof in data.get("clean_profiles", {}).values():
-                    for k in CLEAN_FIELDS:
-                        prof.setdefault(k, env.get(k, DEFAULTS.get(k, "")))
-                    # Migrate OMNIROUTE keys to LLM_*
-                    if "OMNIROUTE_BASE_URL" in prof and not prof.get("LLM_BASE_URL"):
+            if isinstance(data, dict):
+                stt_profs = data.setdefault("stt_profiles", {})
+                clean_profs = data.setdefault("clean_profiles", {})
+
+                # Merge any missing standard presets from seed
+                for name, p_data in seeded["clean_profiles"].items():
+                    if name not in clean_profs:
+                        clean_profs[name] = dict(p_data)
+                for name, p_data in seeded["stt_profiles"].items():
+                    if name not in stt_profs:
+                        stt_profs[name] = dict(p_data)
+
+                # Migrate and backfill clean_profiles
+                for name, prof in clean_profs.items():
+                    if prof.get("OMNIROUTE_BASE_URL") and not prof.get("LLM_BASE_URL"):
                         prof["LLM_BASE_URL"] = prof["OMNIROUTE_BASE_URL"]
-                    if "OMNIROUTE_API_KEY" in prof and not prof.get("LLM_API_KEY"):
+                    if prof.get("OMNIROUTE_API_KEY") and not prof.get("LLM_API_KEY"):
                         prof["LLM_API_KEY"] = prof["OMNIROUTE_API_KEY"]
-                    if "OMNIROUTE_MODEL" in prof and not prof.get("LLM_MODEL"):
+                    if prof.get("OMNIROUTE_MODEL") and not prof.get("LLM_MODEL"):
                         prof["LLM_MODEL"] = prof["OMNIROUTE_MODEL"]
+
                     if not prof.get("LLM_PROVIDER"):
-                        prof["LLM_PROVIDER"] = "custom"
+                        if name == "Custom API Provider" or prof.get("OMNIROUTE_BASE_URL"):
+                            prof["LLM_PROVIDER"] = "custom"
+                        else:
+                            prof["LLM_PROVIDER"] = "openai"
+
+                    for k in CLEAN_FIELDS:
+                        prof.setdefault(k, DEFAULTS.get(k, ""))
+
+                # Backfill stt_profiles
+                for prof in stt_profs.values():
+                    for k in STT_FIELDS:
+                        prof.setdefault(k, DEFAULTS.get(k, ""))
+
+                # Ensure active_clean correctly reflects .env
+                active_clean = data.get("active_clean")
+                if not active_clean or active_clean not in clean_profs or active_clean == "Default":
+                    active_clean = seeded["active_clean"]
+                    data["active_clean"] = active_clean
+
+                # Synchronize the active profile with current .env values
+                if active_clean in clean_profs:
+                    for k in CLEAN_FIELDS:
+                        if k in env and env[k]:
+                            clean_profs[active_clean][k] = env[k]
+
+                # If .env is custom, also synchronize Custom API Provider
+                if env.get("LLM_PROVIDER") == "custom" and "Custom API Provider" in clean_profs:
+                    for k in CLEAN_FIELDS:
+                        if k in env and env[k]:
+                            clean_profs["Custom API Provider"][k] = env[k]
+
+                # Synchronize active_stt with current .env values
+                active_stt = data.get("active_stt")
+                if not active_stt or active_stt not in stt_profs:
+                    active_stt = seeded["active_stt"]
+                    data["active_stt"] = active_stt
+
+                if active_stt in stt_profs:
+                    for k in STT_FIELDS:
+                        if k in env and env[k]:
+                            stt_profs[active_stt][k] = env[k]
+
                 return data
     except Exception:
         pass
-    data = _seed_profiles(env)
-    save_profiles(data)
-    return data
+
+    save_profiles(seeded)
+    return seeded
 
 
 def save_profiles(data: dict) -> None:
     PROFILES_PATH.parent.mkdir(parents=True, exist_ok=True)
     PROFILES_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def reset_clean_defaults() -> dict[str, str]:
+    """Reset cleaning settings to default OpenAI configuration."""
+    clean_defaults = {
+        "LLM_PROVIDER": "openai",
+        "LLM_BASE_URL": "https://api.openai.com/v1",
+        "LLM_API_KEY": "",
+        "LLM_MODEL": "gpt-4o-mini",
+        "CLEANING_TEMPERATURE": "0.1",
+        "OMNIROUTE_BASE_URL": "https://api.openai.com/v1",
+        "OMNIROUTE_API_KEY": "",
+        "OMNIROUTE_MODEL": "gpt-4o-mini",
+    }
+    save_env(clean_defaults)
+    try:
+        profiles = load_profiles()
+        profiles["active_clean"] = "OpenAI (ChatGPT)"
+        if "OpenAI (ChatGPT)" in profiles.get("clean_profiles", {}):
+            profiles["clean_profiles"]["OpenAI (ChatGPT)"].update(clean_defaults)
+        save_profiles(profiles)
+    except Exception:
+        pass
+    return clean_defaults
+
+
+def reset_stt_defaults() -> dict[str, str]:
+    """Reset STT settings to default Deepgram Cloud Streaming configuration."""
+    stt_defaults = {
+        "STT_BACKEND": "deepgram",
+        "STT_TYPE": "cloud",
+        "CLOUD_STT_PROVIDER": "deepgram",
+        "DEEPGRAM_MODEL": "nova-3",
+        "DEEPGRAM_LANGUAGE": "en-US",
+        "DEEPGRAM_FLUX_MODEL": "flux-general-en",
+    }
+    save_env(stt_defaults)
+    try:
+        profiles = load_profiles()
+        profiles["active_stt"] = "Deepgram (Cloud Streaming)"
+        if "Deepgram (Cloud Streaming)" in profiles.get("stt_profiles", {}):
+            profiles["stt_profiles"]["Deepgram (Cloud Streaming)"].update(stt_defaults)
+        save_profiles(profiles)
+    except Exception:
+        pass
+    return stt_defaults
 
 
 # -- custom prompt + vocabulary ------------------------------------------
