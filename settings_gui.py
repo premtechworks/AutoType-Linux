@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""AutoType Settings — Linux Mint XFCE control panel (GTK3).
+"""AutoType Settings — GNOME HIG-style preferences window (GTK3 + libhandy).
 
-Tabs: Speech-to-Text | Cleaning (LLM) | Prompt | Mode & Voice |
-      Microphone | General.
+Structure: HdyPreferencesWindow with pages of grouped rounded cards
+(HdyPreferencesGroup). One setting per row — HdyActionRow with a short
+title, optional explanatory subtitle, and a right-aligned control.
+Rarely-used options live inside HdyExpanderRow sections so the main
+page stays uncluttered.
+
+Pages: General | Speech | Cleaning | Microphone | Advanced.
 
 Writes straight to .env (what the daemon reads) plus
 data/gui_settings.json (named profiles), data/custom_prompt.txt and
@@ -18,219 +23,470 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+gi.require_version("Handy", "1")
+from gi.repository import GLib, Gtk, Handy  # noqa: E402
+
+Handy.init()
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
+from llm.processor import LLMProcessor, PROVIDER_CONFIGS, normalize_provider  # noqa: E402
 from llm.prompts import SYSTEM_PROMPT  # noqa: E402
 from ui import settings_store as store  # noqa: E402
 
 
-def _row(label_text, widget, tooltip=None):
-    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    label = Gtk.Label(label=label_text, xalign=0)
-    label.set_size_request(190, -1)
-    box.pack_start(label, False, False, 0)
-    box.pack_start(widget, True, True, 0)
-    if tooltip:
-        box.set_tooltip_text(tooltip)
-    return box
+# -- row-building helpers ---------------------------------------------------
+
+def _switch_row(title, subtitle=None, active=False):
+    """Action row with a right-aligned GtkSwitch; row click toggles."""
+    row = Handy.ActionRow()
+    row.set_title(title)
+    if subtitle:
+        row.set_subtitle(subtitle)
+    switch = Gtk.Switch()
+    switch.set_valign(Gtk.Align.CENTER)
+    switch.set_active(active)
+    row.add(switch)  # ActionRow.add() places the control right-aligned
+    row.set_activatable_widget(switch)
+    row.switch = switch
+    return row
 
 
-def _entry(text="", secret=False, placeholder=""):
-    e = Gtk.Entry()
-    e.set_text(text or "")
-    e.set_visibility(not secret)
+def _entry_row(title, text="", secret=False, placeholder="", tooltip=None):
+    """Action row with a right-aligned text entry."""
+    row = Handy.ActionRow()
+    row.set_title(title)
+    entry = Gtk.Entry()
+    entry.set_valign(Gtk.Align.CENTER)
+    entry.set_hexpand(True)
+    entry.set_text(text or "")
+    entry.set_visibility(not secret)
     if placeholder:
-        e.set_placeholder_text(placeholder)
-    return e
+        entry.set_placeholder_text(placeholder)
+    if tooltip:
+        row.set_tooltip_text(tooltip)
+    row.add(entry)
+    row.entry = entry
+    return row
 
 
-class SettingsWindow(Gtk.Window):
+def _combo_row(title, items, active_index=0, subtitle=None, tooltip=None):
+    """Action row with a right-aligned dropdown."""
+    row = Handy.ActionRow()
+    row.set_title(title)
+    if subtitle:
+        row.set_subtitle(subtitle)
+    combo = Gtk.ComboBoxText()
+    combo.set_valign(Gtk.Align.CENTER)
+    for item in items:
+        combo.append_text(item)
+    combo.set_active(active_index)
+    if tooltip:
+        row.set_tooltip_text(tooltip)
+    row.add(combo)
+    row.combo = combo
+    return row
+
+
+def _button_row(title, subtitle=None):
+    """Action row that acts like a button (whole row clickable)."""
+    row = Handy.ActionRow()
+    row.set_title(title)
+    if subtitle:
+        row.set_subtitle(subtitle)
+    arrow = Gtk.Image.new_from_icon_name("go-next-symbolic",
+                                        Gtk.IconSize.BUTTON)
+    arrow.set_valign(Gtk.Align.CENTER)
+    row.add(arrow)
+    row.set_activatable(True)
+    return row
+
+
+class SettingsWindow(Handy.PreferencesWindow):
     def __init__(self):
-        super().__init__(title="AutoType Settings")
-        self.set_default_size(760, 620)
-        self.set_border_width(10)
+        super().__init__()
+        self.set_title("AutoType Settings")
+        self.set_default_size(640, 576)
+        self.set_search_enabled(True)
+
         self.env = store.load_env()
         self.profiles = store.load_profiles()
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.add(vbox)
-
-        self.nb = Gtk.Notebook()
-        vbox.pack_start(self.nb, True, True, 0)
-
-        self._build_stt_tab()
-        self._build_clean_tab()
-        self._build_prompt_tab()
-        self._build_mode_tab()
-        self._build_mic_tab()
-        self._build_general_tab()
-
-        self.status = Gtk.Label(label="Ready. Changes apply on Save — "
-                                      "restart the daemon for STT/mic changes.")
-        self.status.set_xalign(0)
-        vbox.pack_start(self.status, False, False, 0)
-
-        quit_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        quit_row.set_halign(Gtk.Align.END)
-        restart_btn = Gtk.Button(label="Restart daemon")
-        restart_btn.connect("clicked", self._on_restart_daemon)
-        quit_row.pack_start(restart_btn, False, False, 0)
-        close_btn = Gtk.Button(label="Close")
-        close_btn.connect("clicked", lambda *_: Gtk.main_quit())
-        quit_row.pack_start(close_btn, False, False, 0)
-        vbox.pack_start(quit_row, False, False, 0)
+        self._build_general_page()
+        self._build_speech_page()
+        self._build_cleaning_page()
+        self._build_mic_page()
+        self._build_advanced_page()
 
     # -- helpers ---------------------------------------------------------
     def say(self, text):
-        GLib.idle_add(self.status.set_text, text)
+        """Transient status message via desktop notification."""
+        from desktop import notifications
+        notifications.notify("AutoType", text)
 
     def run_bg(self, fn):
         threading.Thread(target=fn, daemon=True).start()
 
-    def _profile_row(self, names, active, on_change, on_save, on_delete):
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        combo = Gtk.ComboBoxText()
-        for n in names:
-            combo.append_text(n)
+    def _page(self, title, icon):
+        page = Handy.PreferencesPage()
+        page.set_title(title)
+        page.set_icon_name(icon)
+        self.add(page)
+        return page
+
+    def _group(self, page, title, description=None):
+        group = Handy.PreferencesGroup()
+        group.set_title(title)
+        if description:
+            group.set_description(description)
+        page.add(group)
+        return group
+
+    # -- Page: General -----------------------------------------------------
+    def _build_general_page(self):
+        page = self._page("General", "preferences-system-symbolic")
+
+        group = self._group(
+            page, "Behavior",
+            "How AutoType processes what you dictate.")
+        self._build_mode_section(group)
+
+        group = self._group(
+            page, "Vocabulary",
+            "Terms AutoType should spell exactly as written.")
+        self._build_vocab_section(group)
+
+        group = self._group(page, "Daemon",
+                             "The background process that listens for speech.")
+        self._build_daemon_section(group)
+
+    def _build_mode_section(self, group):
+        MODES = (
+            ("clean", "Clean",
+             "Tidy up dictation — remove filler, fix punctuation. Default."),
+            ("smart", "Smart",
+             "Adapt the style to the active application."),
+            ("raw", "Raw",
+             "Paste exactly what was heard; vocabulary casing only."),
+            ("professional", "Professional",
+             "Formal tone, full forms, no contractions."),
+            ("casual", "Casual",
+             "Conversational tone, contractions are fine."),
+            ("email", "Email",
+             "Structured greeting, body, and closing."),
+            ("chat", "Chat",
+             "Short and casual messages."),
+            ("code", "Code",
+             "Literal identifiers and code symbols."),
+        )
+        labels = [label for _, label, _ in MODES]
+        cur_mode = self.env.get("PROCESSING_MODE", "clean")
+        mode_keys = [key for key, _, _ in MODES]
         try:
-            combo.set_active(names.index(active))
+            active = mode_keys.index(cur_mode)
         except ValueError:
-            combo.set_active(0)
-        combo.connect("changed", on_change)
-        box.pack_start(Gtk.Label(label="Profile:", xalign=0), False, False, 0)
-        box.pack_start(combo, True, True, 0)
-        save_btn = Gtk.Button(label="Save")
-        save_btn.connect("clicked", on_save)
-        box.pack_start(save_btn, False, False, 0)
-        new_btn = Gtk.Button(label="Save as…")
-        new_btn.connect("clicked", self._on_save_as(on_save))
-        box.pack_start(new_btn, False, False, 0)
-        del_btn = Gtk.Button(label="Delete")
-        del_btn.connect("clicked", on_delete)
-        box.pack_start(del_btn, False, False, 0)
-        return box, combo
+            active = 0
+        self.mode_row = _combo_row(
+            "Processing Mode", labels, active,
+            subtitle="Say “computer clean/raw/smart …” to switch by voice.")
+        self.mode_row.combo.connect("changed", self._on_mode_changed)
+        group.add(self.mode_row)
 
-    def _on_save_as(self, on_save):
-        def _inner(_btn):
-            dlg = Gtk.Dialog(title="Save profile as…", parent=self,
-                             flags=0)
-            dlg.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-                            Gtk.STOCK_SAVE, Gtk.ResponseType.OK)
-            entry = Gtk.Entry()
-            entry.set_placeholder_text("Profile name")
-            dlg.get_content_area().pack_start(entry, True, True, 0)
-            dlg.show_all()
-            if dlg.run() == Gtk.ResponseType.OK and entry.get_text().strip():
-                on_save(_btn, name=entry.get_text().strip())
-            dlg.destroy()
-        return _inner
+        self.prefix_row = _entry_row(
+            "Voice Command Prefix", self.env.get("COMMAND_PREFIX", "computer"),
+            tooltip='Say "<prefix> cancel" to discard, "<prefix> raw …" '
+                    "for a one-shot mode.")
+        group.add(self.prefix_row)
 
-    def _combo_value(self, combo):
-        return combo.get_active_text() or ""
+        self.save_rec_row = _switch_row(
+            "Keep Recordings",
+            "Save a WAV copy of every utterance for debugging.",
+            self.env.get("SAVE_RECORDINGS", "false").lower()
+            in ("1", "true", "yes"))
+        self.save_rec_row.switch.connect(
+            "notify::active", self._on_save_rec_toggled)
+        group.add(self.save_rec_row)
 
-    # -- Tab 1: STT -------------------------------------------------------
-    def _build_stt_tab(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        page.set_border_width(8)
-        self.nb.append_page(page, Gtk.Label(label="Speech-to-Text"))
+    def _on_mode_changed(self, combo):
+        mode = self._combo_value(combo)
+        self.prefix_row.entry.set_text(self.prefix_row.entry.get_text().strip()
+                                      or "computer")
+        store.save_env({
+            "PROCESSING_MODE": mode,
+            "COMMAND_PREFIX": self.prefix_row.entry.get_text().strip()
+            or "computer",
+        })
+        self.say(f"Processing mode set to {mode}. Restart daemon to apply.")
 
+    def _on_save_rec_toggled(self, switch, _pspec):
+        store.save_env({"SAVE_RECORDINGS":
+                        "true" if switch.get_active() else "false"})
+        self.say("Recording preference saved. Restart daemon to apply.")
+
+    # -- Vocabulary --------------------------------------------------------
+    def _build_vocab_section(self, group):
+        self.vocab_expander = Handy.ExpanderRow()
+        self.vocab_expander.set_title("Edit Vocabulary")
+        self.vocab_expander.set_subtitle(
+            f"{len(store.load_vocabulary())} terms")
+        inner = Handy.ActionRow()
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        scrolled.set_min_content_height(160)
+        scrolled.set_min_content_width(460)
+        self.vocab_view = Gtk.TextView()
+        self.vocab_view.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.vocab_view.get_buffer().set_text(
+            "\n".join(store.load_vocabulary()))
+        scrolled.add(self.vocab_view)
+        inner.add(scrolled)
+        self.vocab_expander.add(inner)
+        group.add(self.vocab_expander)
+
+        save_btn = Gtk.Button(label="Save Vocabulary")
+        save_btn.set_halign(Gtk.Align.CENTER)
+        save_btn.connect("clicked", self._on_vocab_save)
+        group.add(save_btn)
+
+    def _on_vocab_save(self, _btn):
+        buf = self.vocab_view.get_buffer()
+        terms = [t.strip() for t in buf.get_text(
+            buf.get_start_iter(), buf.get_end_iter(), True).splitlines()
+            if t.strip()]
+        store.save_vocabulary(terms)
+        self.vocab_expander.set_subtitle(f"{len(terms)} terms")
+        self.say(f"Saved {len(terms)} vocabulary terms.")
+
+    # -- Daemon ------------------------------------------------------------
+    def _build_daemon_section(self, group):
+        self.daemon_row = _button_row("Daemon Status", "Checking…")
+        self.daemon_row.connect("activated", self._update_daemon_status)
+        group.add(self.daemon_row)
+
+        for title, fn in (("Restart Daemon", self._on_restart_daemon),):
+            row = _button_row(title)
+            row.connect("activated", fn)
+            group.add(row)
+
+    # -- Page: Speech ------------------------------------------------------
+    def _build_speech_page(self):
+        page = self._page("Speech", "audio-input-microphone-symbolic")
+
+        group = self._group(
+            page, "Speech-to-Text Engine",
+            "Choose a Cloud STT provider or run 100% offline locally.")
+        self._build_stt_section(group)
+
+    def _build_stt_section(self, group):
         names = list(self.profiles["stt_profiles"])
-        row, self.stt_combo = self._profile_row(
-            names, self.profiles.get("active_stt", names[0]),
-            self._on_stt_select, self._on_stt_save, self._on_stt_delete)
-        page.pack_start(row, False, False, 0)
-
-        cur = self.profiles["stt_profiles"][self._combo_value(self.stt_combo)]
-        self.stt_backend = Gtk.ComboBoxText()
-        for b in ("deepgram", "parakeet", "parakeet_stream"):
-            self.stt_backend.append_text(b)
-        labels = {"deepgram": "Deepgram (cloud, streaming)",
-                  "parakeet": "Parakeet (local, batch)",
-                  "parakeet_stream": "Parakeet stream (local, EOU)"}
-        # show friendly names via tooltip; store raw value
-        self.stt_backend.set_tooltip_text(
-            "deepgram = cloud Flux streaming; parakeet = offline batch; "
-            "parakeet_stream = offline 120M EOU streaming.")
+        active_name = self.profiles.get("active_stt", names[0])
         try:
-            self.stt_backend.set_active(
-                ("deepgram", "parakeet", "parakeet_stream").index(
-                    cur.get("STT_BACKEND", "deepgram")))
+            active_idx = names.index(active_name)
         except ValueError:
-            self.stt_backend.set_active(0)
-        page.pack_start(_row("Backend", self.stt_backend,
-                             "Cloud = needs internet + API key. "
-                             "Local = offline, needs model file."), False, False, 0)
-        page.pack_start(Gtk.Label(
-            label="Deepgram (cloud) — console.deepgram.com, Token auth",
-            xalign=0), False, False, 0)
-        self.f_dg_key = _entry(cur.get("DEEPGRAM_API_KEY"), secret=True)
-        self.f_dg_model = _entry(cur.get("DEEPGRAM_MODEL"), placeholder="nova-3")
-        self.f_dg_lang = _entry(cur.get("DEEPGRAM_LANGUAGE"), placeholder="en-US")
-        self.f_dg_flux = _entry(cur.get("DEEPGRAM_FLUX_MODEL"),
-                               placeholder="flux-general-en")
-        page.pack_start(_row("API key", self.f_dg_key), False, False, 0)
-        page.pack_start(_row("Batch model", self.f_dg_model), False, False, 0)
-        page.pack_start(_row("Language", self.f_dg_lang), False, False, 0)
-        page.pack_start(_row("Flux model", self.f_dg_flux,
-                             "Streaming model used for toggle-to-talk."),
-                        False, False, 0)
-        page.pack_start(Gtk.Label(label="Parakeet (local, offline)", xalign=0),
-                        False, False, 0)
-        self.f_pk_bin = _entry(cur.get("PARAKEET_BINARY"))
-        self.f_pk_model = _entry(cur.get("PARAKEET_MODEL"))
-        self.f_pks_bin = _entry(cur.get("PARAKEET_STREAM_BINARY"))
-        self.f_pks_model = _entry(cur.get("PARAKEET_STREAM_MODEL"))
-        page.pack_start(_row("Batch binary", self.f_pk_bin), False, False, 0)
-        page.pack_start(_row("Batch model", self.f_pk_model), False, False, 0)
-        page.pack_start(_row("Stream binary", self.f_pks_bin), False, False, 0)
-        page.pack_start(_row("Stream model", self.f_pks_model), False, False, 0)
+            active_idx = 0
+        self.stt_profile_row = _combo_row(
+            "Profile Preset", names, active_idx,
+            subtitle="Quick presets for Cloud and Local offline setups.")
+        self.stt_profile_row.combo.connect("changed", self._on_stt_select)
+        group.add(self.stt_profile_row)
 
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        test_key = Gtk.Button(label="Test Deepgram key")
-        test_key.connect("clicked", self._on_test_dg_key)
-        btn_row.pack_start(test_key, False, False, 0)
-        test_bin = Gtk.Button(label="Check local binaries")
-        test_bin.connect("clicked", self._on_test_binaries)
-        btn_row.pack_start(test_bin, False, False, 0)
-        page.pack_start(btn_row, False, False, 0)
-        page.pack_start(Gtk.Label(
-            label="Tip: keep one profile per use (e.g. “Cloud”, “Offline”). "
-                  "Switching profiles rewrites .env immediately.",
-            xalign=0, wrap=True), False, False, 0)
+        cur = self.profiles["stt_profiles"][
+            self._combo_value(self.stt_profile_row.combo)]
+
+        # STT Category: Cloud vs Local
+        cat_labels = ["Cloud STT (Online API)", "Local STT (100% Offline)"]
+        is_local = cur.get("STT_TYPE") == "local" or cur.get("STT_BACKEND") in ("parakeet", "parakeet_stream")
+        self.stt_category_row = _combo_row(
+            "Engine Category", cat_labels, 1 if is_local else 0,
+            subtitle="Cloud sends audio to an API; Local runs fully on-device without internet.")
+        self.stt_category_row.combo.connect("changed", self._on_stt_category_changed)
+        group.add(self.stt_category_row)
+
+        # -- Cloud STT Section --
+        self.cloud_stt_expander = Handy.ExpanderRow()
+        self.cloud_stt_expander.set_title("Cloud Speech-to-Text Providers")
+        self.cloud_stt_expander.set_subtitle("Deepgram, OpenAI Whisper, Groq, NVIDIA NIM, or Custom")
+
+        cloud_prov_labels = [
+            "Deepgram (Streaming & Batch)",
+            "OpenAI Whisper Cloud",
+            "Groq Whisper Cloud (Ultra-fast)",
+            "NVIDIA NIM Cloud ASR",
+            "Custom Cloud STT (OpenAI-compatible)",
+        ]
+        self.cloud_provider_row = _combo_row(
+            "Cloud Provider", cloud_prov_labels, 0,
+            subtitle="Select your cloud transcription provider.")
+        self.cloud_provider_row.combo.connect("changed", self._on_cloud_provider_changed)
+        self.cloud_stt_expander.add(self.cloud_provider_row)
+
+        # Deepgram fields
+        self.dg_sub_expander = Handy.ExpanderRow()
+        self.dg_sub_expander.set_title("Deepgram Settings")
+        self.dg_sub_expander.set_subtitle("Flux streaming & Nova-3 batch")
+        self.f_dg_key = _entry_row("Deepgram API Key", cur.get("DEEPGRAM_API_KEY"), secret=True)
+        self.f_dg_model = _entry_row("Batch Model", cur.get("DEEPGRAM_MODEL", "nova-3"), placeholder="nova-3")
+        self.f_dg_lang = _entry_row("Language", cur.get("DEEPGRAM_LANGUAGE", "en-US"), placeholder="en-US")
+        self.f_dg_flux = _entry_row("Flux Stream Model", cur.get("DEEPGRAM_FLUX_MODEL", "flux-general-en"), placeholder="flux-general-en")
+        for r in (self.f_dg_key, self.f_dg_model, self.f_dg_lang, self.f_dg_flux):
+            self.dg_sub_expander.add(r)
+        self.cloud_stt_expander.add(self.dg_sub_expander)
+
+        # Generic Cloud STT fields (Whisper, Groq, NVIDIA, Custom)
+        self.cloud_generic_expander = Handy.ExpanderRow()
+        self.cloud_generic_expander.set_title("OpenAI / Whisper / NVIDIA Cloud Settings")
+        self.cloud_generic_expander.set_subtitle("OpenAI-compatible audio/transcriptions endpoint")
+        self.f_cloud_key = _entry_row("API Key", cur.get("CLOUD_STT_API_KEY"), secret=True)
+        self.f_cloud_url = _entry_row("Base URL", cur.get("CLOUD_STT_BASE_URL", "https://api.openai.com/v1"), placeholder="https://api.openai.com/v1")
+        self.f_cloud_model = _entry_row("Model", cur.get("CLOUD_STT_MODEL", "whisper-1"), placeholder="whisper-1")
+        self.f_cloud_lang = _entry_row("Language", cur.get("CLOUD_STT_LANGUAGE", "en"), placeholder="en")
+        for r in (self.f_cloud_key, self.f_cloud_url, self.f_cloud_model, self.f_cloud_lang):
+            self.cloud_generic_expander.add(r)
+        self.cloud_stt_expander.add(self.cloud_generic_expander)
+
+        group.add(self.cloud_stt_expander)
+
+        # -- Local STT Section --
+        self.local_stt_expander = Handy.ExpanderRow()
+        self.local_stt_expander.set_title("Local Speech-to-Text (Offline)")
+        self.local_stt_expander.set_subtitle("On-device transcription via Parakeet")
+
+        local_eng_labels = [
+            "Parakeet Stream (120M EOU — Real-time)",
+            "Parakeet Batch (transcribe-cli 0.6B)",
+        ]
+        self.local_backend_row = _combo_row(
+            "Local Engine", local_eng_labels, 0,
+            subtitle="Streaming transcribes live; Batch transcribes after stopping.")
+        self.local_backend_row.combo.connect("changed", self._on_local_engine_changed)
+        self.local_stt_expander.add(self.local_backend_row)
+
+        self.f_pks_bin = _entry_row("Stream Binary", cur.get("PARAKEET_STREAM_BINARY"))
+        self.f_pks_model = _entry_row("Stream Model", cur.get("PARAKEET_STREAM_MODEL"))
+        self.f_pk_bin = _entry_row("Batch Binary", cur.get("PARAKEET_BINARY"))
+        self.f_pk_model = _entry_row("Batch Model", cur.get("PARAKEET_MODEL"))
+        for r in (self.f_pks_bin, self.f_pks_model, self.f_pk_bin, self.f_pk_model):
+            self.local_stt_expander.add(r)
+
+        group.add(self.local_stt_expander)
+
+        # Action buttons
+        save_stt_row = _button_row("Save STT Settings", "Save active engine settings to .env.")
+        save_stt_row.connect("activated", self._on_stt_save)
+        group.add(save_stt_row)
+
+        test_row = _button_row("Test STT Connection / Files", "Verify API key or local binary/model files.")
+        test_row.connect("activated", self._on_test_stt)
+        group.add(test_row)
+
+        # Initialize expander visibility
+        self._update_stt_visibility()
+
+    def _update_stt_visibility(self):
+        cat = self._combo_value(self.stt_category_row.combo)
+        is_local = "Local" in cat
+        self.cloud_stt_expander.set_expanded(not is_local)
+        self.cloud_stt_expander.set_enable_expansion(not is_local)
+        self.local_stt_expander.set_expanded(is_local)
+        self.local_stt_expander.set_enable_expansion(is_local)
+
+        cloud_prov = self._combo_value(self.cloud_provider_row.combo)
+        is_dg = "Deepgram" in cloud_prov
+        self.dg_sub_expander.set_expanded(is_dg)
+        self.cloud_generic_expander.set_expanded(not is_dg)
+
+    def _on_stt_category_changed(self, _combo):
+        self._update_stt_visibility()
+
+    def _on_cloud_provider_changed(self, combo):
+        prov = self._combo_value(combo)
+        if "OpenAI" in prov:
+            self.f_cloud_url.entry.set_text("https://api.openai.com/v1")
+            self.f_cloud_model.entry.set_text("whisper-1")
+        elif "Groq" in prov:
+            self.f_cloud_url.entry.set_text("https://api.groq.com/openai/v1")
+            self.f_cloud_model.entry.set_text("whisper-large-v3-turbo")
+        elif "NVIDIA" in prov:
+            self.f_cloud_url.entry.set_text("https://integrate.api.nvidia.com/v1")
+            self.f_cloud_model.entry.set_text("nvidia/parakeet-ctc-1.1b-asr")
+        self._update_stt_visibility()
+
+    def _on_local_engine_changed(self, _combo):
+        pass
 
     def _stt_fields(self):
+        cat = self._combo_value(self.stt_category_row.combo)
+        is_local = "Local" in cat
+
+        if is_local:
+            local_eng = self._combo_value(self.local_backend_row.combo)
+            backend = "parakeet_stream" if "Stream" in local_eng else "parakeet"
+            stt_type = "local"
+        else:
+            cloud_prov = self._combo_value(self.cloud_provider_row.combo)
+            stt_type = "cloud"
+            if "Deepgram" in cloud_prov:
+                backend = "deepgram"
+            elif "Groq" in cloud_prov:
+                backend = "groq"
+            elif "NVIDIA" in cloud_prov:
+                backend = "nvidia"
+            elif "Custom" in cloud_prov:
+                backend = "custom_cloud"
+            else:
+                backend = "whisper"
+
         return {
-            "STT_BACKEND": self._combo_value(self.stt_backend) or "deepgram",
-            "DEEPGRAM_API_KEY": self.f_dg_key.get_text().strip(),
-            "DEEPGRAM_MODEL": self.f_dg_model.get_text().strip() or "nova-3",
-            "DEEPGRAM_LANGUAGE": self.f_dg_lang.get_text().strip() or "en-US",
-            "DEEPGRAM_FLUX_MODEL": self.f_dg_flux.get_text().strip()
-            or "flux-general-en",
-            "PARAKEET_BINARY": self.f_pk_bin.get_text().strip(),
-            "PARAKEET_MODEL": self.f_pk_model.get_text().strip(),
-            "PARAKEET_STREAM_BINARY": self.f_pks_bin.get_text().strip(),
-            "PARAKEET_STREAM_MODEL": self.f_pks_model.get_text().strip(),
+            "STT_TYPE": stt_type,
+            "STT_BACKEND": backend,
+            "DEEPGRAM_API_KEY": self.f_dg_key.entry.get_text().strip(),
+            "DEEPGRAM_MODEL": self.f_dg_model.entry.get_text().strip() or "nova-3",
+            "DEEPGRAM_LANGUAGE": self.f_dg_lang.entry.get_text().strip() or "en-US",
+            "DEEPGRAM_FLUX_MODEL": self.f_dg_flux.entry.get_text().strip() or "flux-general-en",
+            "CLOUD_STT_API_KEY": self.f_cloud_key.entry.get_text().strip() or self.f_dg_key.entry.get_text().strip(),
+            "CLOUD_STT_BASE_URL": self.f_cloud_url.entry.get_text().strip() or "https://api.openai.com/v1",
+            "CLOUD_STT_MODEL": self.f_cloud_model.entry.get_text().strip() or "whisper-1",
+            "CLOUD_STT_LANGUAGE": self.f_cloud_lang.entry.get_text().strip() or "en",
+            "PARAKEET_BINARY": self.f_pk_bin.entry.get_text().strip(),
+            "PARAKEET_MODEL": self.f_pk_model.entry.get_text().strip(),
+            "PARAKEET_STREAM_BINARY": self.f_pks_bin.entry.get_text().strip(),
+            "PARAKEET_STREAM_MODEL": self.f_pks_model.entry.get_text().strip(),
         }
 
     def _fill_stt(self, prof):
-        self.f_dg_key.set_text(prof.get("DEEPGRAM_API_KEY", ""))
-        self.f_dg_model.set_text(prof.get("DEEPGRAM_MODEL", "nova-3"))
-        self.f_dg_lang.set_text(prof.get("DEEPGRAM_LANGUAGE", "en-US"))
-        self.f_dg_flux.set_text(prof.get("DEEPGRAM_FLUX_MODEL",
-                                         "flux-general-en"))
-        self.f_pk_bin.set_text(prof.get("PARAKEET_BINARY", ""))
-        self.f_pk_model.set_text(prof.get("PARAKEET_MODEL", ""))
-        self.f_pks_bin.set_text(prof.get("PARAKEET_STREAM_BINARY", ""))
-        self.f_pks_model.set_text(prof.get("PARAKEET_STREAM_MODEL", ""))
-        try:
-            self.stt_backend.set_active(
-                ("deepgram", "parakeet", "parakeet_stream").index(
-                    prof.get("STT_BACKEND", "deepgram")))
-        except ValueError:
-            self.stt_backend.set_active(0)
+        self.f_dg_key.entry.set_text(prof.get("DEEPGRAM_API_KEY", ""))
+        self.f_dg_model.entry.set_text(prof.get("DEEPGRAM_MODEL", "nova-3"))
+        self.f_dg_lang.entry.set_text(prof.get("DEEPGRAM_LANGUAGE", "en-US"))
+        self.f_dg_flux.entry.set_text(prof.get("DEEPGRAM_FLUX_MODEL", "flux-general-en"))
+        self.f_cloud_key.entry.set_text(prof.get("CLOUD_STT_API_KEY", ""))
+        self.f_cloud_url.entry.set_text(prof.get("CLOUD_STT_BASE_URL", "https://api.openai.com/v1"))
+        self.f_cloud_model.entry.set_text(prof.get("CLOUD_STT_MODEL", "whisper-1"))
+        self.f_cloud_lang.entry.set_text(prof.get("CLOUD_STT_LANGUAGE", "en"))
+        self.f_pk_bin.entry.set_text(prof.get("PARAKEET_BINARY", ""))
+        self.f_pk_model.entry.set_text(prof.get("PARAKEET_MODEL", ""))
+        self.f_pks_bin.entry.set_text(prof.get("PARAKEET_STREAM_BINARY", ""))
+        self.f_pks_model.entry.set_text(prof.get("PARAKEET_STREAM_MODEL", ""))
+
+        backend = prof.get("STT_BACKEND", "deepgram")
+        is_local = backend in ("parakeet", "parakeet_stream")
+        self.stt_category_row.combo.set_active(1 if is_local else 0)
+
+        if not is_local:
+            if backend == "deepgram":
+                self.cloud_provider_row.combo.set_active(0)
+            elif backend == "whisper" or backend == "openai":
+                self.cloud_provider_row.combo.set_active(1)
+            elif backend == "groq":
+                self.cloud_provider_row.combo.set_active(2)
+            elif backend == "nvidia":
+                self.cloud_provider_row.combo.set_active(3)
+            else:
+                self.cloud_provider_row.combo.set_active(4)
+        else:
+            self.local_backend_row.combo.set_active(0 if backend == "parakeet_stream" else 1)
+
+        self._update_stt_visibility()
 
     def _on_stt_select(self, combo):
         name = self._combo_value(combo)
@@ -238,44 +494,32 @@ class SettingsWindow(Gtk.Window):
         if prof:
             self._fill_stt(prof)
 
-    def _on_stt_save(self, _btn, name=None):
-        name = name or self._combo_value(self.stt_combo)
+    def _on_stt_save(self, _btn=None, name=None):
+        name = name or self._combo_value(self.stt_profile_row.combo)
         if not name:
-            return
-        self.profiles["stt_profiles"][name] = self._stt_fields()
+            name = "Active STT"
+        fields = self._stt_fields()
+        self.profiles["stt_profiles"][name] = fields
         self.profiles["active_stt"] = name
         store.save_profiles(self.profiles)
-        store.save_env(self._stt_fields())
-        self._refresh_combo(self.stt_combo,
+        store.save_env(fields)
+        self._refresh_combo(self.stt_profile_row.combo,
                             list(self.profiles["stt_profiles"]), name)
-        self.say(f"STT profile “{name}” saved to .env. Restart daemon to apply.")
+        self.say(f"STT settings ({fields['STT_BACKEND']}) saved to .env. Restart daemon to apply.")
 
-    def _on_stt_delete(self, _btn):
-        name = self._combo_value(self.stt_combo)
-        if len(self.profiles["stt_profiles"]) <= 1:
-            self.say("Cannot delete the last STT profile.")
-            return
-        self.profiles["stt_profiles"].pop(name, None)
-        new_active = list(self.profiles["stt_profiles"])[0]
-        self.profiles["active_stt"] = new_active
-        store.save_profiles(self.profiles)
-        self._refresh_combo(self.stt_combo,
-                            list(self.profiles["stt_profiles"]), new_active)
-        self._fill_stt(self.profiles["stt_profiles"][new_active])
-        self.say(f"Deleted “{name}”. Active: “{new_active}”.")
+    def _on_test_stt(self, _row):
+        fields = self._stt_fields()
+        backend = fields["STT_BACKEND"]
+        if backend == "deepgram":
+            self._on_test_dg_key()
+        elif backend in ("whisper", "groq", "nvidia", "custom_cloud"):
+            self._on_test_cloud_generic(fields)
+        else:
+            self._on_test_binaries()
 
-    def _refresh_combo(self, combo, names, active):
-        combo.remove_all()
-        for n in names:
-            combo.append_text(n)
-        try:
-            combo.set_active(names.index(active))
-        except ValueError:
-            combo.set_active(0)
-
-    def _on_test_dg_key(self, _btn):
+    def _on_test_dg_key(self):
         self.say("Testing Deepgram key…")
-        key = self.f_dg_key.get_text().strip()
+        key = self.f_dg_key.entry.get_text().strip()
 
         def _work():
             import requests
@@ -291,313 +535,323 @@ class SettingsWindow(Gtk.Window):
                 self.say(f"Deepgram test failed: {exc}")
         self.run_bg(_work)
 
-    def _on_test_binaries(self, _btn):
+    def _on_test_cloud_generic(self, fields):
+        self.say(f"Testing Cloud STT ({fields['STT_BACKEND']})…")
+        key = fields["CLOUD_STT_API_KEY"]
+        url = fields["CLOUD_STT_BASE_URL"]
+
+        def _work():
+            import requests
+            try:
+                headers = {"Authorization": f"Bearer {key}"} if key else {}
+                r = requests.get(f"{url.rstrip('/')}/models", headers=headers, timeout=10)
+                if r.status_code in (200, 401, 404, 405):
+                    self.say(f"Cloud STT endpoint reachable (HTTP {r.status_code}).")
+                else:
+                    self.say(f"Cloud STT test: HTTP {r.status_code}.")
+            except Exception as exc:
+                self.say(f"Cloud STT connection test: {exc}")
+        self.run_bg(_work)
+
+    def _on_test_binaries(self):
         msgs = []
-        for label, path in (("batch binary", self.f_pk_bin.get_text().strip()),
-                            ("batch model", self.f_pk_model.get_text().strip()),
-                            ("stream binary", self.f_pks_bin.get_text().strip()),
-                            ("stream model", self.f_pks_model.get_text().strip())):
+        for label, path in (("batch binary",
+                             self.f_pk_bin.entry.get_text().strip()),
+                            ("batch model",
+                             self.f_pk_model.entry.get_text().strip()),
+                            ("stream binary",
+                             self.f_pks_bin.entry.get_text().strip()),
+                            ("stream model",
+                             self.f_pks_model.entry.get_text().strip())):
             ok = bool(path) and Path(path).exists()
             msgs.append(f"{label}: {'OK' if ok else 'MISSING'}")
         self.say("  •  ".join(msgs))
 
-    # -- Tab 2: Cleaning (LLM) -------------------------------------------
-    def _build_clean_tab(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        page.set_border_width(8)
-        self.nb.append_page(page, Gtk.Label(label="Cleaning (LLM)"))
+    # -- Page: Cleaning (LLM) ----------------------------------------------
+    def _build_cleaning_page(self):
+        page = self._page("Cleaning", "text-editor-symbolic")
 
+        group = self._group(
+            page, "LLM Cleaning Provider",
+            "Choose any popular AI provider or bring your own API endpoint.")
+        self._build_clean_section(group)
+
+        group = self._group(page, "Cleaning Prompt",
+                             "Instructions for how text should be tidied.")
+        self._build_prompt_section(group)
+
+    def _build_clean_section(self, group):
         names = list(self.profiles["clean_profiles"])
-        row, self.clean_combo = self._profile_row(
-            names, self.profiles.get("active_clean", names[0]),
-            self._on_clean_select, self._on_clean_save, self._on_clean_delete)
-        page.pack_start(row, False, False, 0)
+        active_name = self.profiles.get("active_clean", names[0])
+        try:
+            active_idx = names.index(active_name)
+        except ValueError:
+            active_idx = 0
+        self.clean_profile_row = _combo_row(
+            "Profile Preset", names, active_idx,
+            subtitle="Quick presets for popular providers and custom endpoints.")
+        self.clean_profile_row.combo.connect("changed", self._on_clean_select)
+        group.add(self.clean_profile_row)
 
-        cur = self.profiles["clean_profiles"][self._combo_value(self.clean_combo)]
-        self.f_or_url = _entry(cur.get("OMNIROUTE_BASE_URL"),
-                               placeholder="http://127.0.0.1:20128")
-        self.f_or_key = _entry(cur.get("OMNIROUTE_API_KEY"), secret=True)
-        self.f_or_model = _entry(cur.get("OMNIROUTE_MODEL"), placeholder="auto")
-        self.f_or_temp = _entry(cur.get("CLEANING_TEMPERATURE", "0.1"),
-                                placeholder="0.1")
-        page.pack_start(_row("Base URL", self.f_or_url,
-                             "Any OpenAI-compatible /v1 endpoint: local "
-                             "OmniRoute, remote OmniRoute, Ollama, etc."),
-                        False, False, 0)
-        page.pack_start(_row("API key", self.f_or_key), False, False, 0)
-        page.pack_start(_row("Model", self.f_or_model,
-                             "Model id as the endpoint expects it."),
-                        False, False, 0)
-        page.pack_start(_row("Temperature", self.f_or_temp,
-                             "0.0–1.0. Lower = more literal cleanup."),
-                        False, False, 0)
-        test_btn = Gtk.Button(label="Test cleaning endpoint")
-        test_btn.connect("clicked", self._on_test_clean)
-        page.pack_start(test_btn, False, False, 0)
-        page.pack_start(Gtk.Label(
-            label="Tip: one profile per endpoint (e.g. “Local”, “Remote GPU”, "
-                  "“Cloud”). Custom wording lives on the Prompt tab.",
-            xalign=0, wrap=True), False, False, 0)
+        cur = self.profiles["clean_profiles"][
+            self._combo_value(self.clean_profile_row.combo)]
+
+        # Providers list
+        self.provider_keys = [
+            "openai", "anthropic", "xai", "deepseek", "qwen",
+            "nvidia", "groq", "openrouter", "ollama", "custom"
+        ]
+        provider_labels = [
+            "OpenAI (ChatGPT)",
+            "Anthropic (Claude)",
+            "xAI (Grok)",
+            "DeepSeek",
+            "Qwen (Alibaba DashScope)",
+            "NVIDIA NIM",
+            "Groq",
+            "OpenRouter",
+            "Ollama (Local)",
+            "Custom API Provider (e.g. OmniRoute)",
+        ]
+
+        cur_prov = cur.get("LLM_PROVIDER", "openai").lower()
+        try:
+            prov_idx = self.provider_keys.index(cur_prov)
+        except ValueError:
+            prov_idx = self.provider_keys.index("custom") if "custom" in self.provider_keys else 0
+
+        self.clean_provider_row = _combo_row(
+            "API Provider", provider_labels, prov_idx,
+            subtitle="Select the AI provider you want to use for text cleanup.")
+        self.clean_provider_row.combo.connect("changed", self._on_clean_provider_changed)
+        group.add(self.clean_provider_row)
+
+        self.f_or_url = _entry_row(
+            "Base URL", cur.get("LLM_BASE_URL") or cur.get("OMNIROUTE_BASE_URL", "https://api.openai.com/v1"),
+            placeholder="https://api.openai.com/v1",
+            tooltip="Base API endpoint (OpenAI /chat/completions or Anthropic /messages).")
+        self.f_or_key = _entry_row(
+            "API Key", cur.get("LLM_API_KEY") or cur.get("OMNIROUTE_API_KEY", ""),
+            secret=True,
+            placeholder="API key for selected provider")
+        self.f_or_model = _entry_row(
+            "Model", cur.get("LLM_MODEL") or cur.get("OMNIROUTE_MODEL", "gpt-4o-mini"),
+            placeholder="gpt-4o-mini",
+            tooltip="Model identifier expected by the provider.")
+        self.f_or_temp = _entry_row(
+            "Temperature",
+            str(cur.get("CLEANING_TEMPERATURE", "0.1")),
+            placeholder="0.1",
+            tooltip="0.0–1.0. Lower = more faithful cleanup.")
+
+        for r in (self.f_or_url, self.f_or_key, self.f_or_model, self.f_or_temp):
+            group.add(r)
+
+        save_clean_row = _button_row("Save Cleaning Settings", "Save selected provider settings to .env.")
+        save_clean_row.connect("activated", self._on_clean_save)
+        group.add(save_clean_row)
+
+        test_row = _button_row("Test Cleaning Endpoint", "Sends a short test prompt to verify your key and model.")
+        test_row.connect("activated", self._on_test_clean)
+        group.add(test_row)
 
     def _clean_fields(self):
         try:
-            float(self.f_or_temp.get_text().strip() or 0.1)
-            temp = self.f_or_temp.get_text().strip() or "0.1"
+            temp = str(float(self.f_or_temp.entry.get_text().strip() or 0.1))
         except ValueError:
             temp = "0.1"
+
+        prov_idx = self.clean_provider_row.combo.get_active()
+        prov_key = self.provider_keys[prov_idx] if 0 <= prov_idx < len(self.provider_keys) else "custom"
+
+        url = self.f_or_url.entry.get_text().strip()
+        key = self.f_or_key.entry.get_text().strip()
+        model = self.f_or_model.entry.get_text().strip()
+
         return {
-            "OMNIROUTE_BASE_URL": self.f_or_url.get_text().strip()
-            or "http://127.0.0.1:20128",
-            "OMNIROUTE_API_KEY": self.f_or_key.get_text().strip(),
-            "OMNIROUTE_MODEL": self.f_or_model.get_text().strip() or "auto",
+            "LLM_PROVIDER": prov_key,
+            "LLM_BASE_URL": url,
+            "LLM_API_KEY": key,
+            "LLM_MODEL": model,
             "CLEANING_TEMPERATURE": temp,
+            # Synchronize OMNIROUTE_* for backwards compatibility
+            "OMNIROUTE_BASE_URL": url,
+            "OMNIROUTE_API_KEY": key,
+            "OMNIROUTE_MODEL": model,
         }
 
     def _fill_clean(self, prof):
-        self.f_or_url.set_text(prof.get("OMNIROUTE_BASE_URL", ""))
-        self.f_or_key.set_text(prof.get("OMNIROUTE_API_KEY", ""))
-        self.f_or_model.set_text(prof.get("OMNIROUTE_MODEL", "auto"))
-        self.f_or_temp.set_text(prof.get("CLEANING_TEMPERATURE", "0.1"))
+        prov = prof.get("LLM_PROVIDER", "").lower()
+        if not prov and prof.get("OMNIROUTE_BASE_URL"):
+            prov = "custom"
+        elif not prov:
+            prov = "openai"
+
+        try:
+            idx = self.provider_keys.index(prov)
+            self.clean_provider_row.combo.set_active(idx)
+        except ValueError:
+            self.clean_provider_row.combo.set_active(len(self.provider_keys) - 1)
+
+        url = prof.get("LLM_BASE_URL") or prof.get("OMNIROUTE_BASE_URL", "")
+        key = prof.get("LLM_API_KEY") or prof.get("OMNIROUTE_API_KEY", "")
+        model = prof.get("LLM_MODEL") or prof.get("OMNIROUTE_MODEL", "")
+        temp = str(prof.get("CLEANING_TEMPERATURE", "0.1"))
+
+        self.f_or_url.entry.set_text(url)
+        self.f_or_key.entry.set_text(key)
+        self.f_or_model.entry.set_text(model)
+        self.f_or_temp.entry.set_text(temp)
 
     def _on_clean_select(self, combo):
         prof = self.profiles["clean_profiles"].get(self._combo_value(combo))
         if prof:
             self._fill_clean(prof)
 
-    def _on_clean_save(self, _btn, name=None):
-        name = name or self._combo_value(self.clean_combo)
-        if not name:
-            return
-        self.profiles["clean_profiles"][name] = self._clean_fields()
+    def _on_clean_provider_changed(self, combo):
+        idx = combo.get_active()
+        if 0 <= idx < len(self.provider_keys):
+            prov_key = self.provider_keys[idx]
+            cfg = PROVIDER_CONFIGS.get(prov_key)
+            if cfg and prov_key != "custom":
+                self.f_or_url.entry.set_text(cfg["base_url"])
+                self.f_or_model.entry.set_text(cfg["default_model"])
+                self.f_or_key.entry.set_placeholder_text(f"API key for {cfg['name']}")
+
+    def _on_clean_save(self, _row=None):
+        name = self._combo_value(self.clean_profile_row.combo) or "Custom"
+        fields = self._clean_fields()
+        self.profiles["clean_profiles"][name] = fields
         self.profiles["active_clean"] = name
         store.save_profiles(self.profiles)
-        store.save_env(self._clean_fields())
-        self._refresh_combo(self.clean_combo,
-                            list(self.profiles["clean_profiles"]), name)
-        self.say(f"Cleaning profile “{name}” saved. Restart daemon to apply.")
+        store.save_env(fields)
+        self.say(f"Cleaning settings ({fields['LLM_PROVIDER']}) saved to .env.")
 
-    def _on_clean_delete(self, _btn):
-        name = self._combo_value(self.clean_combo)
-        if len(self.profiles["clean_profiles"]) <= 1:
-            self.say("Cannot delete the last cleaning profile.")
-            return
-        self.profiles["clean_profiles"].pop(name, None)
-        new_active = list(self.profiles["clean_profiles"])[0]
-        self.profiles["active_clean"] = new_active
-        store.save_profiles(self.profiles)
-        self._refresh_combo(self.clean_combo,
-                            list(self.profiles["clean_profiles"]), new_active)
-        self._fill_clean(self.profiles["clean_profiles"][new_active])
-        self.say(f"Deleted “{name}”. Active: “{new_active}”.")
-
-    def _on_test_clean(self, _btn):
+    def _on_test_clean(self, _row):
         self.say("Testing cleaning endpoint…")
 
         def _work():
-            from llm.omniroute import OmniRouteProcessor
             f = self._clean_fields()
             try:
-                proc = OmniRouteProcessor(
-                    base_url=f["OMNIROUTE_BASE_URL"],
-                    api_key=f["OMNIROUTE_API_KEY"],
-                    model=f["OMNIROUTE_MODEL"],
-                    temperature=float(f["CLEANING_TEMPERATURE"]))
-                out = proc.process("hello world this is a test",
-                                   system_prompt="Reply with exactly: OK")
+                proc = LLMProcessor(
+                    base_url=f["LLM_BASE_URL"],
+                    api_key=f["LLM_API_KEY"],
+                    model=f["LLM_MODEL"],
+                    provider=f["LLM_PROVIDER"],
+                    temperature=float(f["CLEANING_TEMPERATURE"]),
+                )
+                out = proc.process(
+                    "hello world this is a test",
+                    system_prompt="Reply with exactly: OK",
+                )
                 self.say(f"Endpoint OK — replied: {out[:80]}")
             except Exception as exc:
                 self.say(f"Endpoint failed: {exc}")
         self.run_bg(_work)
 
-    # -- Tab 3: Prompt ----------------------------------------------------
-    def _build_prompt_tab(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        page.set_border_width(8)
-        self.nb.append_page(page, Gtk.Label(label="Prompt"))
-
-        self.use_custom = Gtk.CheckButton(
-            label="Use custom cleaning prompt (instead of built-in)")
-        self.use_custom.set_active(
+    # -- Prompt section ----------------------------------------------------
+    def _build_prompt_section(self, group):
+        self.use_custom_row = _switch_row(
+            "Use Custom Cleaning Prompt",
+            "Use your own prompt instead of the built-in one.",
             self.env.get("USE_CUSTOM_PROMPT", "false").lower()
             in ("1", "true", "yes"))
-        page.pack_start(self.use_custom, False, False, 0)
+        self.use_custom_row.switch.connect(
+            "notify::active", self._on_custom_prompt_toggled)
+        group.add(self.use_custom_row)
 
+        self.prompt_expander = Handy.ExpanderRow()
+        self.prompt_expander.set_title("Edit Prompt")
+        self.prompt_expander.set_subtitle("Used for Clean and Smart modes")
+        inner = Handy.ActionRow()
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
+        scrolled.set_min_content_height(180)
+        scrolled.set_min_content_width(460)
         self.prompt_view = Gtk.TextView()
         self.prompt_view.set_wrap_mode(Gtk.WrapMode.WORD)
         buf = self.prompt_view.get_buffer()
         custom = store.load_custom_prompt()
         buf.set_text(custom if custom.strip() else SYSTEM_PROMPT)
         scrolled.add(self.prompt_view)
-        page.pack_start(scrolled, True, True, 0)
+        inner.add(scrolled)
+        self.prompt_expander.add(inner)
+        group.add(self.prompt_expander)
 
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        save_btn = Gtk.Button(label="Save prompt")
-        save_btn.connect("clicked", self._on_prompt_save)
-        row.pack_start(save_btn, False, False, 0)
-        reset_btn = Gtk.Button(label="Reset to built-in default")
+        reset_btn = Gtk.Button(label="Reset to Built-in Default")
+        reset_btn.set_halign(Gtk.Align.CENTER)
         reset_btn.connect("clicked", self._on_prompt_reset)
-        row.pack_start(reset_btn, False, False, 0)
-        page.pack_start(row, False, False, 0)
-        page.pack_start(Gtk.Label(
-            label="Used for Clean mode (and as the base for Smart mode). "
-                  "Raw mode always skips the LLM. "
-                  "Your vocabulary terms are appended automatically.",
-            xalign=0, wrap=True), False, False, 0)
+        group.add(reset_btn)
 
-    def _on_prompt_save(self, _btn):
-        buf = self.prompt_view.get_buffer()
-        text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), True)
-        store.save_custom_prompt(text)
-        enabled = "true" if self.use_custom.get_active() else "false"
-        store.save_env({"USE_CUSTOM_PROMPT": enabled})
-        self.say("Prompt saved. Restart daemon (or next utterance) to apply.")
+    def _on_custom_prompt_toggled(self, switch, _pspec):
+        store.save_env({"USE_CUSTOM_PROMPT":
+                        "true" if switch.get_active() else "false"})
+        self.say("Prompt setting saved.")
 
     def _on_prompt_reset(self, _btn):
         self.prompt_view.get_buffer().set_text(SYSTEM_PROMPT)
-        self.say("Reset to built-in default (press Save prompt to keep it).")
+        self.say("Reset to built-in default. "
+                 "Use “Test Cleaning Endpoint” after saving.")
 
-    # -- Tab 4: Mode & Voice ----------------------------------------------
-    def _build_mode_tab(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        page.set_border_width(8)
-        self.nb.append_page(page, Gtk.Label(label="Mode & Voice"))
+    # -- Page: Microphone --------------------------------------------------
+    def _build_mic_page(self):
+        page = self._page("Microphone", "audio-input-microphone-symbolic")
 
-        page.pack_start(Gtk.Label(label="Processing mode", xalign=0),
-                        False, False, 0)
-        self.mode_radios = {}
-        first = None
-        mode_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        for mode, desc in (("raw", "Raw — paste verbatim, vocab casing only"),
-                           ("clean", "Clean — tidy up (default)"),
-                           ("smart", "Smart — adapt style to the active app"),
-                           ("professional", "Professional — formal, full forms"),
-                           ("casual", "Casual — conversational, contractions OK"),
-                           ("email", "Email — greeting / body / closing"),
-                           ("chat", "Chat — short + casual"),
-                           ("code", "Code — literal identifiers")):
-            r = Gtk.RadioButton.new_with_label_from_widget(first, f"{desc}")
-            if first is None:
-                first = r
-            self.mode_radios[mode] = r
-            mode_box.pack_start(r, False, False, 0)
-        cur_mode = self.env.get("PROCESSING_MODE", "clean")
-        if cur_mode in self.mode_radios:
-            self.mode_radios[cur_mode].set_active(True)
-        page.pack_start(mode_box, False, False, 0)
+        group = self._group(page, "Input Device",
+                            "What AutoType records from.")
+        self._build_mic_section(group)
 
-        self.f_prefix = _entry(self.env.get("COMMAND_PREFIX", "computer"))
-        page.pack_start(_row("Voice command prefix", self.f_prefix,
-                             'Say "<prefix> cancel" to discard, '
-                             '"<prefix> raw …" for a one-shot mode.'),
-                        False, False, 0)
-        self.f_save_rec = Gtk.CheckButton(
-            label="Keep WAV copy of every utterance (debug)")
-        self.f_save_rec.set_active(
-            self.env.get("SAVE_RECORDINGS", "false").lower()
-            in ("1", "true", "yes"))
-        page.pack_start(self.f_save_rec, False, False, 0)
+        group = self._group(page, "Bluetooth Headset",
+                            "Switch your headset between voice and music.")
+        self._build_bt_section(group)
 
-        page.pack_start(Gtk.Label(label="Vocabulary (one exact term per line)",
-                                   xalign=0), False, False, 0)
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        self.vocab_view = Gtk.TextView()
-        self.vocab_view.get_buffer().set_text(
-            "\n".join(store.load_vocabulary()))
-        scrolled.add(self.vocab_view)
-        page.pack_start(scrolled, True, True, 0)
-        save_btn = Gtk.Button(label="Save mode & voice settings")
-        save_btn.connect("clicked", self._on_mode_save)
-        page.pack_start(save_btn, False, False, 0)
+    def _build_mic_section(self, group):
+        self.mic_combo_row = _combo_row(
+            "Input Device", ["(follow system)"], 0,
+            subtitle="Empty (recommended) follows the system default "
+                     "microphone.")
+        self.mic_combo_row.combo.connect("changed", self._on_mic_use)
+        group.add(self.mic_combo_row)
 
-    def _on_mode_save(self, _btn):
-        mode = next((m for m, r in self.mode_radios.items()
-                     if r.get_active()), "clean")
-        buf = self.vocab_view.get_buffer()
-        terms = [t.strip() for t in buf.get_text(
-            buf.get_start_iter(), buf.get_end_iter(), True).splitlines()
-            if t.strip()]
-        store.save_vocabulary(terms)
-        store.save_env({
-            "PROCESSING_MODE": mode,
-            "COMMAND_PREFIX": self.f_prefix.get_text().strip() or "computer",
-            "SAVE_RECORDINGS": "true" if self.f_save_rec.get_active()
-            else "false",
-        })
-        self.say(f"Saved (mode={mode}, {len(terms)} vocabulary terms).")
+        self.mic_entry_row = _entry_row(
+            "MIC_DEVICE Value", self.env.get("MIC_DEVICE", ""),
+            tooltip="Empty (recommended) = follow PipeWire's default source, "
+                    "so Internal/BT switches just work. Or a name part "
+                    "(pipewire, Buds, Built-in) or index.")
+        group.add(self.mic_entry_row)
 
-    # -- Tab 5: Microphone -------------------------------------------------
-    def _build_mic_tab(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        page.set_border_width(8)
-        self.nb.append_page(page, Gtk.Label(label="Microphone"))
+        test_row = _button_row("Test Microphone",
+                               "Records 3 seconds — speak now.")
+        test_row.connect("activated", self._on_mic_test)
+        group.add(test_row)
 
-        page.pack_start(Gtk.Label(
-            label="Why Bluetooth headsets stay silent: (1) they connect in "
-                  "A2DP (music, output-only) with no mic — switch to HSP/HFP "
-                  "below for voice; (2) on some headsets the HD voice codec "
-                  "(mSBC) fails to decode — the voice button detects that and "
-                  "falls back to CVSD automatically.",
-            xalign=0, wrap=True), False, False, 0)
+        self.refresh_mic_lists()
 
-        self.bt_status = Gtk.Label(label="Bluetooth status: …", xalign=0)
-        self.bt_status.set_line_wrap(True)
-        self.bt_status.set_selectable(True)
-        page.pack_start(self.bt_status, False, False, 0)
+    def _build_bt_section(self, group):
+        self.bt_status_row = Handy.ActionRow()
+        self.bt_status_row.set_title("Status")
+        self.bt_status_row.set_selectable(False)
+        status_label = Gtk.Label(label="Checking…")
+        status_label.set_line_wrap(True)
+        status_label.set_xalign(0)
+        self.bt_status_row.add(status_label)
+        self.bt_status_label = status_label
+        group.add(self.bt_status_row)
 
-        bt_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        voice_btn = Gtk.Button(label="Headset → voice (auto)")
-        voice_btn.set_tooltip_text(
-            "Tries HD voice (mSBC), verifies decoding, falls back to "
-            "compatible voice (CVSD) if mSBC is broken. Recommended.")
-        voice_btn.connect("clicked", self._on_bt_voice)
-        bt_row.pack_start(voice_btn, False, False, 0)
-        cvsd_btn = Gtk.Button(label="Headset → voice (CVSD)")
-        cvsd_btn.set_tooltip_text(
-            "Force compatible 8 kHz voice codec directly (skips the mSBC "
-            "check). Use if auto mode misbehaves.")
-        cvsd_btn.connect("clicked", self._on_bt_voice_cvsd)
-        bt_row.pack_start(cvsd_btn, False, False, 0)
-        music_btn = Gtk.Button(label="Headset → music (A2DP)")
-        music_btn.connect("clicked", self._on_bt_music)
-        bt_row.pack_start(music_btn, False, False, 0)
-        bt_refresh = Gtk.Button(label="Refresh")
-        bt_refresh.connect("clicked", lambda *_: self.refresh_mic_lists())
-        bt_row.pack_start(bt_refresh, False, False, 0)
-        page.pack_start(bt_row, False, False, 0)
+        for title, subtitle, fn in (
+                ("Switch to Voice", "Try HD voice (mSBC), fall back to "
+                 "compatible voice (CVSD) if broken.",
+                 self._on_bt_voice),
+                ("Switch to Music (A2DP)", "High-quality audio; the "
+                 "headset mic becomes unavailable.",
+                 self._on_bt_music),
+                ("Refresh", "Re-check devices and Bluetooth status.",
+                 self._on_bt_refresh)):
+            row = _button_row(title, subtitle)
+            row.connect("activated", fn)
+            group.add(row)
 
-        page.pack_start(Gtk.Label(label="Input device for AutoType", xalign=0),
-                        False, False, 0)
-        dev_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.mic_combo = Gtk.ComboBoxText()
-        dev_row.pack_start(self.mic_combo, True, True, 0)
-        use_btn = Gtk.Button(label="Use selected")
-        use_btn.connect("clicked", self._on_mic_use)
-        dev_row.pack_start(use_btn, False, False, 0)
-        page.pack_start(dev_row, True, False, 0)
-
-        self.mic_entry = _entry(self.env.get("MIC_DEVICE", ""),
-                                placeholder="(empty = follow system, recommended)")
-        page.pack_start(_row("MIC_DEVICE value", self.mic_entry,
-                             "Empty (recommended) = follow PipeWire's default "
-                             "source, so Internal/BT switches just work. Or a "
-                             "name part (pipewire, Buds, Built-in) or index."),
-                        False, False, 0)
-
-        test_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        test_btn = Gtk.Button(label="Test mic (3 s — speak now)")
-        test_btn.connect("clicked", self._on_mic_test)
-        test_row.pack_start(test_btn, False, False, 0)
-        self.mic_result = Gtk.Label(label="", xalign=0)
-        test_row.pack_start(self.mic_result, True, True, 0)
-        page.pack_start(test_row, False, False, 0)
-
-        save_btn = Gtk.Button(label="Save microphone setting")
-        save_btn.connect("clicked", self._on_mic_save)
-        page.pack_start(save_btn, False, False, 0)
-
+    def _on_bt_refresh(self, _row):
         self.refresh_mic_lists()
 
     def refresh_mic_lists(self):
@@ -615,15 +869,15 @@ class SettingsWindow(Gtk.Window):
                 ready, msg = dev.bt_voice_ready()
             except Exception as exc:
                 ready, msg = False, str(exc)
-
             try:
                 diag = dev.route_diagnosis()
             except Exception as exc:
                 diag = {"error": str(exc)}
 
             def _ui():
-                self.mic_combo.remove_all()
-                self.mic_combo.append_text(
+                combo = self.mic_combo_row.combo
+                combo.remove_all()
+                combo.append_text(
                     "(follow system via pipewire)  —  leave MIC_DEVICE empty")
                 for d in inputs:
                     tags = []
@@ -632,9 +886,8 @@ class SettingsWindow(Gtk.Window):
                     if d.get("bluetooth_hint"):
                         tags.append("BT?")
                     mark = f"  [{','.join(tags)}]" if tags else ""
-                    self.mic_combo.append_text(
-                        f"{d['index']}: {d['name']}{mark}")
-                self.mic_combo.set_active(0)
+                    combo.append_text(f"{d['index']}: {d['name']}{mark}")
+                combo.set_active(0)
                 lines = []
                 if cards:
                     info = "; ".join(
@@ -657,14 +910,14 @@ class SettingsWindow(Gtk.Window):
                     f"decoder errors (10 min): "
                     f"{diag.get('sbc_errors_10min')}")
                 if (diag.get("sbc_errors_10min") or 0) > 0:
-                    lines.append("mSBC decoding is failing — use the voice "
-                                 "(auto) button to fall back to CVSD.")
-                self.bt_status.set_text("\n".join(lines))
+                    lines.append("mSBC decoding is failing — use Switch to "
+                                 "Voice to fall back to CVSD.")
+                self.bt_status_label.set_text("\n".join(lines))
                 return False
             GLib.idle_add(_ui)
         self.run_bg(_work)
 
-    def _on_bt_voice(self, _btn):
+    def _on_bt_voice(self, _row):
         self.say("Switching headset to voice… trying mSBC, verifying… "
                  "(takes ~5 s)")
 
@@ -679,22 +932,7 @@ class SettingsWindow(Gtk.Window):
             self.refresh_mic_lists()
         self.run_bg(_work)
 
-    def _on_bt_voice_cvsd(self, _btn):
-        self.say("Switching headset to voice (CVSD)…")
-
-        def _work():
-            from audio import devices as dev
-            try:
-                card, prof, note = dev.switch_bt_for_voice(prefer="cvsd",
-                                                           verify=False)
-                self.say(f"Headset voice ready: {prof} ({card}). {note} "
-                         "Now run the mic test while speaking.")
-            except Exception as exc:
-                self.say(f"Voice switch failed: {exc}")
-            self.refresh_mic_lists()
-        self.run_bg(_work)
-
-    def _on_bt_music(self, _btn):
+    def _on_bt_music(self, _row):
         self.say("Switching headset to A2DP…")
 
         def _work():
@@ -708,82 +946,79 @@ class SettingsWindow(Gtk.Window):
             self.refresh_mic_lists()
         self.run_bg(_work)
 
-    def _on_mic_use(self, _btn):
-        text = self._combo_value(self.mic_combo)
+    def _on_mic_use(self, combo):
+        text = self._combo_value(combo)
         if text.startswith("(follow system)"):
-            self.mic_entry.set_text("")
+            self.mic_entry_row.entry.set_text("")
         else:
             idx = text.split(":")[0].strip()
-            # Prefer a human-readable substring over a bare index when
-            # the name looks stable (survives BT reconnects better).
-            name = text.split(":", 1)[1].strip()
+            name = text.split(":", 1)[1].strip() if ":" in text else text
             hint = ""
             for key in ("pipewire", "Buds", "Headset", "Handsfree",
                         "Built-in", "default"):
                 if key.lower() in (name + " " + text).lower():
                     hint = key
                     break
-            self.mic_entry.set_text(hint or idx)
-
-    def _on_mic_save(self, _btn):
-        store.save_env({"MIC_DEVICE": self.mic_entry.get_text().strip()})
+            self.mic_entry_row.entry.set_text(hint or idx)
+        store.save_env({"MIC_DEVICE":
+                        self.mic_entry_row.entry.get_text().strip()})
         self.say("Microphone saved. Restart daemon to apply.")
 
-    def _on_mic_test(self, _btn):
-        self.mic_result.set_text("Recording 3 s — speak now…")
+    def _on_mic_test(self, _row):
+        self.say("Recording 3 s — speak now…")
 
         def _work():
             from audio import devices as dev
-            pref = self.mic_entry.get_text().strip()
+            pref = self.mic_entry_row.entry.get_text().strip()
             try:
                 res = dev.quick_test(dev.resolve_mic_device(pref), seconds=3.0)
-                GLib.idle_add(self.mic_result.set_text,
-                              f"OK: peak {res['peak']} rms {res['rms']} "
-                              f"(device {res['device']})")
-                self.say("Mic test OK — levels look good.")
+                self.say(f"Mic test OK: peak {res['peak']} rms {res['rms']} "
+                         f"(device {res['device']})")
             except Exception as exc:
-                GLib.idle_add(self.mic_result.set_text, f"FAILED: {exc}")
                 self.say(f"Mic test failed: {exc}")
         self.run_bg(_work)
 
-    # -- Tab 6: General ----------------------------------------------------
-    def _build_general_tab(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        page.set_border_width(8)
-        self.nb.append_page(page, Gtk.Label(label="General"))
+    # -- Page: Advanced ----------------------------------------------------
+    def _build_advanced_page(self):
+        page = self._page("Advanced", "emblem-system-symbolic")
 
-        page.pack_start(Gtk.Label(
-            label="Hotkey: double-tap Right Alt to start/stop. "
-                  "Voice commands: “<prefix> cancel”, “<prefix> raw/clean/smart/professional/casual/email/chat/code …”. "
-                  "Speech helpers: say “comma / period / question mark / new paragraph / new line / bullet point / numbered list …” — applied before the LLM.",
-            xalign=0, wrap=True), False, False, 0)
-        self.daemon_label = Gtk.Label(label="Daemon: …", xalign=0)
-        page.pack_start(self.daemon_label, False, False, 0)
-
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        for label, fn in (("Status", self._update_daemon_status),
-                          ("Start", self._on_daemon_start),
-                          ("Stop", self._on_daemon_stop),
-                          ("Restart", self._on_restart_daemon)):
-            b = Gtk.Button(label=label)
-            b.connect("clicked", fn)
-            row.pack_start(b, False, False, 0)
-        page.pack_start(row, False, False, 0)
-
-        page.pack_start(Gtk.Label(label="Recent log", xalign=0),
-                        False, False, 0)
+        group = self._group(page, "Daemon Log",
+                            "Diagnostics from the background process.")
+        self.log_expander = Handy.ExpanderRow()
+        self.log_expander.set_title("View Recent Log")
+        inner = Handy.ActionRow()
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
+        scrolled.set_min_content_height(200)
+        scrolled.set_min_content_width(460)
         self.log_view = Gtk.TextView()
         self.log_view.set_editable(False)
         self.log_view.set_monospace(True)
         scrolled.add(self.log_view)
-        page.pack_start(scrolled, True, True, 0)
-        log_btn = Gtk.Button(label="Refresh log")
-        log_btn.connect("clicked", lambda *_: self._update_daemon_status())
-        page.pack_start(log_btn, False, False, 0)
+        inner.add(scrolled)
+        self.log_expander.add(inner)
+        group.add(self.log_expander)
+
+        refresh_row = _button_row("Refresh Log")
+        refresh_row.connect("activated", lambda row:
+                            self._update_daemon_status())
+        group.add(refresh_row)
+
+        group = self._group(page, "Shortcuts & Voice Commands")
+        info_row = Handy.ActionRow()
+        info_row.set_title("How to Use")
+        info_row.set_subtitle(
+            "Hotkey: double-tap Right Alt to start/stop.\n"
+            "Voice commands: “<prefix> cancel”, “<prefix> "
+            "raw/clean/smart/professional/casual/email/chat/code …”.\n"
+            "Speech helpers: say “comma / period / question mark / new "
+            "paragraph / new line / bullet point / numbered list …” — "
+            "applied before the LLM.")
+        group.add(info_row)
+
         self._update_daemon_status()
 
+    # -- daemon management --------------------------------------------------
     def _daemon_pid(self):
         """PID from data/daemon.pid if that process is still our daemon."""
         try:
@@ -793,8 +1028,6 @@ class SettingsWindow(Gtk.Window):
         try:
             with open(f"/proc/{pid}/cmdline", "rb") as fh:
                 cmd = fh.read().decode(errors="replace")
-            # Verify it's really ours: cmdline mentions app.py and the
-            # process cwd is this project.
             cwd = str(Path(f"/proc/{pid}/cwd").resolve())
             if "app.py" in cmd and cwd == str(BASE_DIR):
                 return pid
@@ -805,7 +1038,6 @@ class SettingsWindow(Gtk.Window):
     def _daemon_running(self):
         if self._daemon_pid() is not None:
             return True
-        # Fallback: any python running app.py from this project dir.
         try:
             out = subprocess.run(["pgrep", "-af", "python.*app\\.py"],
                                  capture_output=True, text=True,
@@ -823,7 +1055,6 @@ class SettingsWindow(Gtk.Window):
                 return
             except Exception:
                 pass
-        # Fallback for daemons started before the pidfile existed.
         subprocess.run(["pkill", "-f", "autotype.*app\\.py"],
                        capture_output=True, timeout=5)
         subprocess.run(["bash", "-c",
@@ -832,12 +1063,14 @@ class SettingsWindow(Gtk.Window):
                         "= \"" + str(BASE_DIR) + "\" ]; then kill $p; fi; done"],
                        capture_output=True, timeout=5)
 
-    def _update_daemon_status(self, _btn=None):
+    def _update_daemon_status(self, _row=None):
         running = self._daemon_running()
-        self.daemon_label.set_text(
-            "Daemon: RUNNING (double-tap Right Alt to dictate)"
-            if running else "Daemon: STOPPED")
-        # tail the newest log
+        self.daemon_row.set_subtitle(
+            "Running (double-tap Right Alt to dictate)"
+            if running else "Stopped")
+        self.daemon_row.set_icon_name(
+            "object-select-symbolic" if running
+            else "dialog-warning-symbolic")
         try:
             logdir = BASE_DIR / "logs"
             logs = sorted(logdir.glob("*.log"),
@@ -847,33 +1080,11 @@ class SettingsWindow(Gtk.Window):
             if logs:
                 text = logs[-1].read_text(encoding="utf-8",
                                           errors="replace")[-6000:]
-            self.log_view.get_buffer().set_text(
-                text or "(no logs yet)")
+            self.log_view.get_buffer().set_text(text or "(no logs yet)")
         except Exception as exc:
             self.log_view.get_buffer().set_text(f"(log read failed: {exc})")
 
-    def _on_daemon_start(self, _btn):
-        def _work():
-            try:
-                subprocess.Popen(
-                    [sys.executable, str(BASE_DIR / "app.py")],
-                    cwd=str(BASE_DIR),
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    start_new_session=True)
-                self.say("Daemon starting…")
-            except Exception as exc:
-                self.say(f"Start failed: {exc}")
-            GLib.idle_add(self._update_daemon_status)
-        self.run_bg(_work)
-
-    def _on_daemon_stop(self, _btn):
-        def _work():
-            self._stop_daemon_processes()
-            self.say("Daemon stopped.")
-            GLib.idle_add(self._update_daemon_status)
-        self.run_bg(_work)
-
-    def _on_restart_daemon(self, _btn):
+    def _on_restart_daemon(self, _row=None):
         def _work():
             self._stop_daemon_processes()
             import time
@@ -889,6 +1100,19 @@ class SettingsWindow(Gtk.Window):
                 self.say(f"Restart failed: {exc}")
             GLib.idle_add(self._update_daemon_status)
         self.run_bg(_work)
+
+    # -- misc ---------------------------------------------------------------
+    def _combo_value(self, combo):
+        return combo.get_active_text() or ""
+
+    def _refresh_combo(self, combo, names, active):
+        combo.remove_all()
+        for n in names:
+            combo.append_text(n)
+        try:
+            combo.set_active(names.index(active))
+        except ValueError:
+            combo.set_active(0)
 
 
 def main():

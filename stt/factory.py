@@ -15,11 +15,22 @@ def create_transcriber():
             language=config.deepgram_language(),
         )
 
+    if backend in ("whisper", "openai", "groq", "nvidia", "custom_cloud"):
+        import config
+        from .cloud_whisper import CloudWhisperTranscriber
+        return CloudWhisperTranscriber(
+            api_key=config.cloud_stt_api_key(),
+            base_url=config.cloud_stt_base_url(),
+            model=config.cloud_stt_model(),
+            language=config.cloud_stt_language(),
+        )
+
     if backend == "parakeet":
+        import config
         from .parakeet import ParakeetTranscriber
 
-        binary = os.getenv("PARAKEET_BINARY", "").strip()
-        model = os.getenv("PARAKEET_MODEL", "").strip()
+        binary = config.parakeet_binary()
+        model = config.parakeet_model()
         if not binary or not model:
             raise RuntimeError(
                 "Missing PARAKEET_BINARY or PARAKEET_MODEL in .env."
@@ -33,7 +44,7 @@ def create_stream_session(on_partial=None):
     """Started streaming session for toggle-to-talk.
 
     deepgram -> FluxStreamer (cloud), parakeet_stream -> ParakeetStreamSession
-    (local 120M EOU). Batch-only backends (parakeet) raise here.
+    (local 120M EOU). Batch-only backends raise here so app.py falls back to batch.
     """
     backend = os.getenv("STT_BACKEND", "deepgram").strip().lower()
 
@@ -55,8 +66,7 @@ def create_stream_session(on_partial=None):
         )
     else:
         raise ValueError(
-            f"Backend {backend!r} has no streaming mode; "
-            "toggle uses batch recording for it."
+            f"Backend {backend!r} uses batch recording for toggle-to-talk."
         )
 
     session.start(on_partial=on_partial)

@@ -1,4 +1,4 @@
-"""AutoType: double-tap Right Alt → Deepgram → OmniRoute → clipboard paste.
+"""AutoType: double-tap Right Alt → Speech-to-Text → LLM Cleanup → clipboard paste.
 
 Runs as a silent background daemon: no terminal needed. A floating
 pill widget above the taskbar shows recording / working states.
@@ -24,7 +24,7 @@ from context.history import History
 from desktop.clipboard import get_selected_text, insert_text
 from desktop.notifications import APP_NAME, notify
 from llm.normalizer import normalize_transcript
-from llm.omniroute import OmniRouteProcessor
+from llm.processor import LLMProcessor
 from llm.prompts import (
     MODES,
     SYSTEM_PROMPT,
@@ -52,10 +52,11 @@ class AutoType:
         self.overlay = overlay
         self.recorder = Recorder()
         self.transcriber = create_transcriber()
-        self.processor = OmniRouteProcessor(
-            base_url=config.omniroute_base_url(),
-            api_key=config.omniroute_api_key(),
-            model=config.omniroute_model(),
+        self.processor = LLMProcessor(
+            base_url=config.llm_base_url(),
+            api_key=config.llm_api_key(),
+            model=config.llm_model(),
+            provider=config.llm_provider(),
             temperature=config.cleaning_temperature(),
         )
         self.is_recording = False
@@ -195,7 +196,7 @@ class AutoType:
 
         1. Voice commands (strict prefix match, never eats dictation).
         2. Deterministic normalizer (spoken punctuation, lists, vocab casing).
-        3. OmniRoute LLM with structured payload (mode/app/selection/history).
+        3. LLM cleanup with structured payload (mode/app/selection/history).
         4. Clipboard paste + history.
         """
         t_after_stop = time.monotonic()
@@ -273,14 +274,14 @@ class AutoType:
                 selected_text=selected, previous_text=previous,
                 vocabulary=terms)
             self._ui_processing("Cleaning...")
-            log.info("-> Processing with OmniRoute...")
+            log.info(f"-> Processing with {config.llm_provider().upper()} ({config.llm_model()})...")
             t0 = time.monotonic()
             try:
                 final_text = self.processor.process(
                     normalized, system_prompt, user_payload=user_payload)
                 final_text = self._validate_output(final_text, normalized)
             except Exception as exc:
-                log.warning(f"OmniRoute failed, using normalized text: {exc}")
+                log.warning(f"LLM cleaning failed, using normalized text: {exc}")
                 final_text = normalized
             llm_dur = time.monotonic() - t0
 

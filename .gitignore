@@ -9,6 +9,8 @@ data/*
 !data/.gitkeep
 !data/vocabulary.json
 !data/profiles.json
+# Contains plaintext API keys saved by the settings GUI — never commit.
+data/gui_settings.json
 models/*
 logs/
 daemon.log
