@@ -12,7 +12,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk, Pango
 
-WIDTH, HEIGHT = 300, 76
+WIDTH, HEIGHT = 300, 78
 BARS = 30
 
 CSS = b"""
@@ -56,6 +56,7 @@ class Overlay:
 
         self.win = Gtk.Window(type=Gtk.WindowType.POPUP)
         self.win.set_default_size(WIDTH, HEIGHT)
+        self.win.set_size_request(WIDTH, HEIGHT)
         self.win.set_decorated(False)
         self.win.set_resizable(False)
         self.win.set_keep_above(True)
@@ -85,9 +86,12 @@ class Overlay:
         self.win.add(box)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.set_size_request(WIDTH - 32, 24)
         self.label = Gtk.Label(label="")
         self.label.set_xalign(0.0)
         self.label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.label.set_max_width_chars(25)
+        self.label.set_size_request(230, -1)
         self.label.get_style_context().add_class("status-label")
         header.pack_start(self.label, True, True, 0)
 
@@ -119,11 +123,20 @@ class Overlay:
     # -- geometry -----------------------------------------------------
     def _place_above_taskbar(self):
         display = Gdk.Display.get_default()
+        if not display:
+            return
         monitor = display.get_primary_monitor()
+        if not monitor:
+            monitors = display.get_n_monitors()
+            if monitors > 0:
+                monitor = display.get_monitor(0)
+        if not monitor:
+            return
         work = monitor.get_workarea()
         x = work.x + (work.width - WIDTH) // 2
         y = work.y + work.height - HEIGHT - 16
         self.win.move(x, y)
+        self.win.resize(WIDTH, HEIGHT)
 
     # -- public API (thread-safe) --------------------------------------
     def show_recording(self):
@@ -152,6 +165,7 @@ class Overlay:
         self.label.set_text(text)
         if state == "recording":
             self.levels = [0.0] * BARS
+        self._place_above_taskbar()
         self.win.show_all()
         if state == "error":
             self.stop_btn.set_visible(False)
@@ -165,9 +179,12 @@ class Overlay:
     def _do_partial(self, text: str):
         if self.state == "recording":
             short = text.strip()
-            if len(short) > 60:
-                short = "..." + short[-57:]
-            self.label.set_text(f"Listening... {short}" if short else "Listening...")
+            if not short:
+                self.label.set_text("Listening...")
+            else:
+                if len(short) > 35:
+                    short = "..." + short[-30:].lstrip()
+                self.label.set_text(f"Listening: {short}")
         return False
 
     def _do_hide(self):
@@ -222,7 +239,9 @@ class Overlay:
         cr.set_line_width(bar_w)
         cr.set_line_cap(1)  # round caps
         for i, v in enumerate(values):
-            bh = max(3.0, v * h)
+            # Dynamic curve so quiet-to-moderate speech produces clear, tall waveforms
+            scaled_v = min(1.0, max(0.0, float(v))) ** 0.75
+            bh = max(3.5, scaled_v * (h - 6.0))
             x = i * slot + slot / 2
             cr.move_to(x, (h - bh) / 2)
             cr.line_to(x, (h + bh) / 2)

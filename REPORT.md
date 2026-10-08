@@ -61,6 +61,13 @@ This update resolves two major functional and UX challenges in AutoType:
   - Hides the overlay widget and resets the system tray icon to idle.
 - **Reverted `Escape` Interception**: Completely removed keyboard interception for the `Escape` key in `pynput.keyboard.Listener`, ensuring standard desktop keystroke propagation is 100% unaffected.
 
+### 3.6 Strict Geometry Locking & Waveform Scaling (`ui/overlay.py`)
+
+- **Fixed Size Constraint Enforcement**: Configured `self.win.set_size_request(WIDTH, HEIGHT)`, `header.set_size_request(WIDTH - 32, 24)`, and `self.label.set_max_width_chars(25)` with `self.label.set_size_request(230, -1)`. This prevents GTK from expanding the window based on the label's natural text width, locking the pill dimensions permanently to 300x78.
+- **Drift Prevention**: Automatically calls `_place_above_taskbar()` upon every `_do_show()` event, ensuring the widget is always centered horizontally across the primary monitor workarea.
+- **Non-Linear Waveform Scaling**: Implemented a power curve (`v ** 0.75`) for audio amplitude levels in `_on_draw()`, ensuring waveforms remain visually tall, active, and well-proportioned during quiet-to-moderate speech instead of appearing as flat dots.
+- **Clean Live Transcript Formatting**: Refined live transcript text formatting (`Listening: ...[words]`) to eliminate redundant leading ellipses.
+
 ---
 
 ## 4. Verification & Testing
@@ -71,6 +78,7 @@ This update resolves two major functional and UX challenges in AutoType:
 | **Stop During Listening** | Double-tap Right Alt to begin listening, then click the `■` stop button on the widget. | Recording terminates immediately, overlay disappears, mic stream closes, daemon stays idle. | **PASS** |
 | **Stop During Cleaning** | Speak sentence, double-tap Right Alt to stop, click `■` button during "Cleaning...". | LLM request is dropped, overlay hides, no text is pasted to the active window. | **PASS** |
 | **Overlay Layout & Ellipsization** | Speak a long utterance exceeding widget width. | Text ellipsizes gracefully with `...`, stop button remains anchored and fully clickable. | **PASS** |
+| **Fixed Geometry Stability** | Stream continuous text of 100+ characters across all states. | Widget dimensions stay exactly 300x78; no rightward expansion or waveform flattening. | **PASS** |
 | **Passive Keystroke Isolation** | Press `Escape` while AutoType is idle or active. | AutoType ignores `Escape`, preserving default behavior in terminal/editors (e.g. Vim). | **PASS** |
 
 ---
@@ -80,6 +88,6 @@ This update resolves two major functional and UX challenges in AutoType:
 - `stt/flux.py`: Implemented multi-turn list accumulation, live partial aggregation, `eot_timeout_ms=3000`, and `FORCE_END_TURN_NO_ACTIVE_TURN` warning handling.
 - `stt/parakeet_stream.py`: Updated EOU pattern replacement to strip intermediate pause markers across multi-turn streams.
 - `audio/recorder.py`: Added non-destructive `abort()` method for batch recording streams.
-- `ui/overlay.py`: Designed and embedded square stop button (`■`), added `on_cancel` callback, styled with custom CSS, and enabled Pango ellipsization.
+- `ui/overlay.py`: Designed and embedded square stop button (`■`), locked widget dimensions to 300x78, prevented rightward drift, and optimized waveform scaling.
 - `app.py`: Integrated `Overlay(on_cancel=...)`, implemented thread-safe `cancel()` with session generation tracking, removed `Escape` key listener, and added cancellation guards across pipeline stages.
-- `README.md`: Documented continuous multi-turn pause handling and the new on-widget square stop button.
+- `README.md`: Documented continuous multi-turn pause handling, floating widget UI consistency, and the new on-widget square stop button.
