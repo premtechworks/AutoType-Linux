@@ -10,7 +10,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, GLib, Gtk
+from gi.repository import Gdk, GLib, Gtk, Pango
 
 WIDTH, HEIGHT = 300, 76
 BARS = 30
@@ -22,12 +22,32 @@ CSS = b"""
     border: 1px solid rgba(255, 255, 255, 0.18);
 }
 .status-label { color: #ffffff; font-size: 13px; font-weight: bold; }
+.stop-btn {
+    background-color: rgba(239, 68, 68, 0.18);
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    border-radius: 6px;
+    padding: 0px;
+    min-width: 22px;
+    min-height: 22px;
+    box-shadow: none;
+    outline: none;
+}
+.stop-btn:hover {
+    background-color: rgba(239, 68, 68, 0.45);
+    border-color: rgba(239, 68, 68, 0.85);
+}
+.stop-icon {
+    color: #ef4444;
+    font-size: 10px;
+    font-weight: bold;
+}
 """
 
 
 class Overlay:
-    def __init__(self, get_level=None):
+    def __init__(self, get_level=None, on_cancel=None):
         self.get_level = get_level or (lambda: 0.0)
+        self.on_cancel = on_cancel
         self.state = "hidden"
         self.status_text = ""
         self.levels = [0.0] * BARS
@@ -64,9 +84,22 @@ class Overlay:
         box.set_margin_end(16)
         self.win.add(box)
 
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.label = Gtk.Label(label="")
+        self.label.set_xalign(0.0)
+        self.label.set_ellipsize(Pango.EllipsizeMode.END)
         self.label.get_style_context().add_class("status-label")
-        box.pack_start(self.label, False, False, 0)
+        header.pack_start(self.label, True, True, 0)
+
+        self.stop_btn = Gtk.Button()
+        self.stop_btn.get_style_context().add_class("stop-btn")
+        self.stop_btn.set_tooltip_text("Cancel dictation")
+        stop_icon = Gtk.Label(label="■")
+        stop_icon.get_style_context().add_class("stop-icon")
+        self.stop_btn.add(stop_icon)
+        self.stop_btn.connect("clicked", self._on_stop_clicked)
+        header.pack_end(self.stop_btn, False, False, 0)
+        box.pack_start(header, False, False, 0)
 
         self.bars = Gtk.DrawingArea()
         self.bars.set_size_request(WIDTH - 32, 34)
@@ -75,6 +108,13 @@ class Overlay:
 
         self._place_above_taskbar()
         self.win.hide()
+
+    def _on_stop_clicked(self, button):
+        if self.on_cancel:
+            try:
+                self.on_cancel()
+            except Exception:
+                pass
 
     # -- geometry -----------------------------------------------------
     def _place_above_taskbar(self):
@@ -113,6 +153,10 @@ class Overlay:
         if state == "recording":
             self.levels = [0.0] * BARS
         self.win.show_all()
+        if state == "error":
+            self.stop_btn.set_visible(False)
+        else:
+            self.stop_btn.set_visible(True)
         self.win.present()
         if self._tick_id is None:
             self._tick_id = GLib.timeout_add(66, self._tick)

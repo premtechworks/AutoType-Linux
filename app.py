@@ -70,10 +70,65 @@ class AutoType:
         self.history = History(BASE_DIR / "data" / "history.jsonl")
         self.tray = None
         self.lock = threading.Lock()
+        self._session_id = 0
+        self._cancel_token = threading.Event()
         # Stream session state (only touched by stream methods).
         self._stream_mic: MicrophoneStream | None = None
         self._stream_session = None
         self._stream_sending = threading.Event()
+
+    def is_active(self) -> bool:
+        """True if listening or processing."""
+        with self.lock:
+            return self.is_recording or self.streaming or self.busy
+
+    def _is_cancelled(self, session_id: int | None = None) -> bool:
+        if self._cancel_token.is_set():
+            return True
+        if session_id is not None and session_id != self._session_id:
+            return True
+        return False
+
+    def cancel(self) -> None:
+        """Abort any active listening, streaming, or processing operation."""
+        with self.lock:
+            if not (self.is_recording or self.streaming or self.busy):
+                return
+            log.info("Cancelling active operation.")
+            self._cancel_token.set()
+            self._session_id += 1
+            was_streaming = self.streaming
+            was_recording = self.is_recording
+            self.streaming = False
+            self.is_recording = False
+            self.busy = False
+            self._stream_sending.clear()
+            mic = self._stream_mic
+            session = self._stream_session
+            self._stream_mic = None
+            self._stream_session = None
+            self._stream_frames = []
+
+        if mic is not None:
+            try:
+                mic.stop()
+            except Exception:
+                pass
+        if session is not None:
+            try:
+                session.abort()
+            except Exception:
+                pass
+
+        if was_recording:
+            try:
+                self.recorder.abort()
+            except Exception:
+                pass
+
+        self._ui_done()
+        if self.tray:
+            self.tray.set_state("idle")
 
     def current_level(self) -> float:
         """Live mic level for the overlay waveform (either capture mode)."""
@@ -121,8 +176,11 @@ class AutoType:
 
     def start_recording(self):
         with self.lock:
-            if self.busy or self.is_recording:
+            if self.busy or self.is_recording or self.streaming:
                 return
+            self._cancel_token.clear()
+            self._session_id += 1
+            session_id = self._session_id
             self.is_recording = True
         try:
             self.recorder.start()
@@ -131,7 +189,8 @@ class AutoType:
             self._ui_recording()
         except Exception as exc:
             with self.lock:
-                self.is_recording = False
+                if self._session_id == session_id:
+                    self.is_recording = False
             self._ui_error(f"Recording error: {exc}")
 
     def _capture_audio(self) -> Path:
@@ -161,12 +220,18 @@ class AutoType:
         with self.lock:
             if not self.is_recording:
                 return
+            session_id = self._session_id
             self.is_recording = False
             self.busy = True
         try:
+            if self._is_cancelled(session_id):
+                return
             self._ui_processing("Transcribing...")
             t_stop = time.monotonic()
             audio_path = self._capture_audio()
+            if self._is_cancelled(session_id):
+                self._cleanup_audio(audio_path)
+                return
             log.info(f"Audio captured: {audio_path}")
 
             log.info("-> Transcribing...")
@@ -177,21 +242,26 @@ class AutoType:
                 self._cleanup_audio(audio_path)
             stt_dur = time.monotonic() - t0
             record_dur = t_stop - getattr(self, "_t_start", t_stop)
+            if self._is_cancelled(session_id):
+                return
             log.info(f"RAW: {transcript}")
             if not transcript:
                 self._ui_error("No speech detected.")
                 return
 
-            self.process_and_insert(transcript, record_dur, stt_dur)
+            self.process_and_insert(transcript, record_dur, stt_dur, session_id=session_id)
         except Exception as exc:
-            self._ui_error(f"Error: {exc}")
+            if not self._is_cancelled(session_id):
+                self._ui_error(f"Error: {exc}")
         finally:
             with self.lock:
-                self.busy = False
+                if self._session_id == session_id:
+                    self.busy = False
 
     def process_and_insert(self, transcript: str,
                            record_dur: float = 0.0,
-                           stt_dur: float = 0.0) -> None:
+                           stt_dur: float = 0.0,
+                           session_id: int | None = None) -> None:
         """4-layer pipeline: STT -> NORMALIZER -> INTELLIGENCE -> INPUT.
 
         1. Voice commands (strict prefix match, never eats dictation).
@@ -199,6 +269,8 @@ class AutoType:
         3. LLM cleanup with structured payload (mode/app/selection/history).
         4. Clipboard paste + history.
         """
+        if self._is_cancelled(session_id):
+            return
         t_after_stop = time.monotonic()
         raw_transcript = transcript
         mode = self.processing_mode
@@ -234,6 +306,9 @@ class AutoType:
         if not normalized:
             normalized = transcript.strip()
         log.info(f"NORMALIZED: {normalized}")
+
+        if self._is_cancelled(session_id):
+            return
 
         # -- RAW mode: minimal LLM-free path (vocab casing only) ---------
         if mode == "raw":
@@ -273,6 +348,8 @@ class AutoType:
                 normalized, mode=effective, application=app_label,
                 selected_text=selected, previous_text=previous,
                 vocabulary=terms)
+            if self._is_cancelled(session_id):
+                return
             self._ui_processing("Cleaning...")
             log.info(f"-> Processing with {config.llm_provider().upper()} ({config.llm_model()})...")
             t0 = time.monotonic()
@@ -285,14 +362,22 @@ class AutoType:
                 final_text = normalized
             llm_dur = time.monotonic() - t0
 
+        if self._is_cancelled(session_id):
+            return
+
         log.info(f"FINAL: {final_text}")
         if not final_text:
             self._ui_error("No text generated.")
             return
 
+        if self._is_cancelled(session_id):
+            return
+
         t0 = time.monotonic()
         insert_text(final_text)
         insert_dur = time.monotonic() - t0
+        if self._is_cancelled(session_id):
+            return
         self._ui_done()
         after_stop = t_after_stop and (time.monotonic() - t_after_stop)
         log.info(
@@ -357,6 +442,9 @@ class AutoType:
         with self.lock:
             if self.busy or self.is_recording or self.streaming:
                 return
+            self._cancel_token.clear()
+            self._session_id += 1
+            session_id = self._session_id
             self.streaming = True
         try:
             from stt.factory import create_stream_session
@@ -365,8 +453,12 @@ class AutoType:
             session = create_stream_session(on_partial=self._on_stream_partial)
         except Exception as exc:
             with self.lock:
-                self.streaming = False
+                if self._session_id == session_id:
+                    self.streaming = False
             self._ui_error(f"Stream failed: {exc}")
+            return
+        if self._is_cancelled(session_id):
+            session.abort()
             return
         try:
             mic = MicrophoneStream()
@@ -374,18 +466,28 @@ class AutoType:
         except Exception as exc:
             session.abort()
             with self.lock:
-                self.streaming = False
+                if self._session_id == session_id:
+                    self.streaming = False
             self._ui_error(f"Microphone error: {exc}")
             return
-        self._stream_session = session
-        self._stream_mic = mic
-        # Stream dumps are gated behind SAVE_RECORDINGS (see _dump_stream_audio).
-        self._stream_frames: list[bytes] = []
-        self._stream_chunks = 0
-        self._stream_peak = 0.0
-        self._stream_first_size = 0
-        self._stream_sending.set()
-        self._t_start = time.monotonic()
+        if self._is_cancelled(session_id):
+            mic.stop()
+            session.abort()
+            return
+        with self.lock:
+            if self._session_id != session_id:
+                mic.stop()
+                session.abort()
+                return
+            self._stream_session = session
+            self._stream_mic = mic
+            # Stream dumps are gated behind SAVE_RECORDINGS (see _dump_stream_audio).
+            self._stream_frames = []
+            self._stream_chunks = 0
+            self._stream_peak = 0.0
+            self._stream_first_size = 0
+            self._stream_sending.set()
+            self._t_start = time.monotonic()
         log.info("Streaming... (double-tap Right Alt to stop)")
         self._ui_recording()
         self._stream_pump = threading.Thread(target=self._pump_stream_audio, daemon=True)
@@ -448,16 +550,21 @@ class AutoType:
         with self.lock:
             if not self.streaming:
                 return
+            session_id = self._session_id
             self.streaming = False
             self.busy = True
+            session = self._stream_session
+            mic = self._stream_mic
         self._stream_sending.clear()
         try:
-            if self._stream_mic is not None:
-                self._stream_mic.stop()
+            if mic is not None:
+                mic.stop()
             # Wait for the pump thread so stats below are final, not stale.
             pump = getattr(self, "_stream_pump", None)
             if pump is not None:
                 pump.join(timeout=2.0)
+            if self._is_cancelled(session_id):
+                return
             self._ui_processing("Transcribing...")
             chunks = self._stream_chunks
             peak = self._stream_peak
@@ -468,28 +575,34 @@ class AutoType:
             dump = self._dump_stream_audio()
             if dump:
                 log.info(f"Stream audio dumped: {dump} (play with: aplay {dump})")
+            if self._is_cancelled(session_id):
+                return
             log.info("-> Finalizing turn...")
             t0 = time.monotonic()
-            transcript = self._stream_session.finish()
+            transcript = session.finish() if session is not None else ""
             stt_dur = time.monotonic() - t0
             record_dur = t_stop - getattr(self, "_t_start", t_stop)
+            if self._is_cancelled(session_id):
+                return
             log.info(f"RAW: {transcript}")
             if not transcript:
                 self._ui_error("No speech detected.")
                 return
-            self.process_and_insert(transcript, record_dur, stt_dur)
+            self.process_and_insert(transcript, record_dur, stt_dur, session_id=session_id)
         except Exception as exc:
-            self._ui_error(f"Error: {exc}")
+            if not self._is_cancelled(session_id):
+                self._ui_error(f"Error: {exc}")
         finally:
             try:
-                if self._stream_session is not None:
-                    self._stream_session.abort()
+                if session is not None:
+                    session.abort()
             except Exception:
                 pass
-            self._stream_session = None
-            self._stream_mic = None
             with self.lock:
-                self.busy = False
+                if self._session_id == session_id:
+                    self._stream_session = None
+                    self._stream_mic = None
+                    self.busy = False
 
 
 def main():
@@ -508,7 +621,10 @@ def main():
         raise SystemExit(1)
 
     # Overlay lives on the GTK (main) thread; it polls the live mic level.
-    app.overlay = Overlay(get_level=lambda: app.current_level())
+    app.overlay = Overlay(
+        get_level=lambda: app.current_level(),
+        on_cancel=lambda: threading.Thread(target=app.cancel, daemon=True).start(),
+    )
 
     # Tray icon: state colors + mode menu. Runs detached in its own thread.
     from ui.tray import TrayController

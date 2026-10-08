@@ -14,7 +14,7 @@ import struct
 import subprocess
 import threading
 
-EOU_SUFFIX = re.compile(r"\s*\[EOU @ [^\]]+\]\s*$")
+EOU_PATTERN = re.compile(r"\s*\[EOU @ [^\]]+\]")
 
 
 def wav_header_unknown_size() -> bytes:
@@ -54,7 +54,7 @@ class ParakeetStreamSession:
                     self._transcript = line[len("[stream:final]"):].strip()
                     self._final.set()
                 elif line.startswith("[stream]"):
-                    text = EOU_SUFFIX.sub("", line[len("[stream]"):]).strip()
+                    text = EOU_PATTERN.sub("", line[len("[stream]"):]).strip()
                     if text:
                         self._last_partial = text
                         if self.on_partial:

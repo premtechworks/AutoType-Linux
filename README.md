@@ -11,11 +11,12 @@ AutoType is a fast, flexible, open-source Linux alternative to [Wispr Flow](http
 ## What It Does
 
 1. **Trigger anywhere**: Double-tap `Right Alt` in any text field, IDE, browser, or terminal.
-2. **Audio feedback**: A subtle floating pill appears above the taskbar displaying a live waveform meter.
-3. **Speech-to-Text**: Captures your voice via Cloud STT or 100% on-device Local STT.
-4. **Deterministic normalization**: Handles spoken punctuation (`"comma"`, `"new line"`), bulleted lists, and personal vocabulary casing without hallucinations.
-5. **Intelligent LLM cleanup**: Removes stutters and filler words (`"um"`, `"uh"`), formats code snippets, and matches the tone of your current application.
-6. **Instant paste**: Automatically pastes the text into the focused window and restores your previous clipboard contents.
+2. **Audio feedback**: A subtle floating pill appears above the taskbar displaying a live waveform meter and real-time accumulated transcription.
+3. **Speech-to-Text with pause resilience**: Captures your voice via Cloud STT or 100% on-device Local STT. Short or long pauses (2+ seconds) never cut off or discard your dictation; all audio between starting and stopping is transcribed continuously.
+4. **Instant cancellation**: Click the integrated square stop button (`■`) on the floating pill overlay at any point during listening, transcribing, or cleaning to abort immediately without pasting, leaving the background daemon ready for your next dictation.
+5. **Deterministic normalization**: Handles spoken punctuation (`"comma"`, `"new line"`), bulleted lists, and personal vocabulary casing without hallucinations.
+6. **Intelligent LLM cleanup**: Removes stutters and filler words (`"um"`, `"uh"`), formats code snippets, and matches the tone of your current application.
+7. **Instant paste**: Automatically pastes the text into the focused window and restores your previous clipboard contents.
 
 The same gesture (double-tapping `Right Alt`) stops recording and triggers typing.
 
@@ -251,9 +252,25 @@ AutoType comes with an intuitive, native GTK3/libhandy settings manager:
 1. Place your cursor in any application (browser, Slack, VS Code, terminal).
 2. Double-tap **Right Alt** (two quick taps within 0.4s).
 3. The on-screen pill turns red with a live waveform showing active recording.
-4. Speak naturally.
+4. Speak naturally. Take your time to think or breathe — pauses (even 2+ seconds or longer) will not cut off your audio.
 5. Double-tap **Right Alt** again.
 6. The pill transitions to `Transcribing...` → `Cleaning...` → `Done`, and types the result directly into your active window.
+
+### Continuous Dictation & Natural Pauses
+
+Unlike conventional speech systems that drop or overwrite earlier speech when you pause, AutoType uses **multi-turn turn accumulation**:
+- Pausing for 2 or more seconds to think or breathe keeps your entire previous stream intact.
+- The floating pill displays your full cumulative dictation as you speak.
+- 100% of the speech captured between turning ON listening and turning OFF listening (double-tap `Right Alt`) is passed to cleaning and pasting.
+
+### Instant Cancellation (On-Widget Stop Button)
+
+Need to abort what you just said midway?
+
+- Click the square **Stop** button (`■`) embedded directly on the floating pill overlay at any time while listening, transcribing, or cleaning.
+- The active audio capture or background processing terminates immediately, the floating widget disappears, and no text is pasted.
+- The button stays visible across listening, transcribing, and cleaning states, disappearing along with the widget once processing completes or is cancelled.
+- The daemon remains running silently in the background, ready for your next dictation gesture (double-tap `Right Alt`).
 
 ### Voice Commands
 

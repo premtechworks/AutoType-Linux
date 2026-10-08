@@ -96,3 +96,17 @@ class Recorder:
             wf.setframerate(SAMPLE_RATE)
             wf.writeframes(audio.tobytes())
         return output_path
+
+    def abort(self) -> None:
+        self.recording = False
+        self.level = 0.0
+        if self.stream is not None:
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception:
+                pass
+            self.stream = None
+        with self.lock:
+            self.frames.clear()
+
