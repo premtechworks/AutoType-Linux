@@ -30,6 +30,8 @@ Wispr Flow is a proprietary, subscription-based commercial application primarily
 | --- | --- | --- |
 | **Linux Native** | Built for Linux Mint XFCE & X11 desktops | Not a primary platform |
 | **Pricing** | **100% Free & Open Source**. Pay only your own API provider rates (fractions of a cent) or run completely free offline | Monthly/annual paid subscription |
+| **Pause Resilience** | **Multi-turn accumulation**: 2+ second pauses never discard or cut off speech | Cuts off or splits utterances on silence |
+| **Midway Cancellation** | **On-widget square stop button (`■`)** cancels cleanly at any stage | Limited / hotkey dependent |
 | **Offline Speech** | **Yes** — 100% offline Local STT using Parakeet GGUF models | Cloud only |
 | **LLM Cleaning Provider** | **Bring your own**: OpenAI, Anthropic, Grok, DeepSeek, Qwen, NVIDIA NIM, Groq, Ollama, or Custom endpoints | Proprietary locked model |
 | **Custom Prompts & Vocab** | Full control over system prompts, vocabulary lists, and style modes | Limited custom dictionary |
@@ -48,13 +50,14 @@ Wispr Flow is a proprietary, subscription-based commercial application primarily
        ┌──────────────────┴──────────────────┐
        ▼                                     ▼
    Cloud STT                             Local STT
- • Deepgram Flux / Nova-3             • Parakeet Stream (120M EOU)
- • OpenAI Whisper                     • Parakeet Batch (0.6B GGUF)
- • Groq Whisper (<300ms)              • Zero internet required
+ • Deepgram Flux (Multi-Turn Accumulation) • Parakeet Stream (120M EOU)
+ • Deepgram Nova-3 Batch              • Parakeet Batch (0.6B GGUF)
+ • OpenAI Whisper                     • Zero internet required
+ • Groq Whisper (<300ms)
  • NVIDIA NIM Cloud ASR
  • Custom OpenAI-compatible ASR
        └──────────────────┬──────────────────┘
-                          │ (Raw Transcript)
+                          │ (Cumulative Transcript)
                           ▼
              [ Deterministic Normalizer ]
    • Spoken punctuation ("period", "question mark", "open quote")
@@ -272,6 +275,18 @@ Need to abort what you just said midway?
 - The button stays visible across listening, transcribing, and cleaning states, disappearing along with the widget once processing completes or is cancelled.
 - The daemon remains running silently in the background, ready for your next dictation gesture (double-tap `Right Alt`).
 
+### Floating Taskbar Pill Widget
+
+The floating pill widget sits unobtrusively centered above your taskbar on X11:
+
+- **Zero Focus Stealing**: Built as a native GTK3 popup with `accept_focus=False`, ensuring your keyboard focus never leaves your active window, IDE, or terminal.
+- **Embedded Stop Button (`■`)**: A discreet square stop button styled seamlessly within the header bar. Clicking it terminates all in-flight audio capture, STT transcription, and LLM cleaning without stealing focus or altering clipboard history.
+- **Dynamic Waveform States**:
+  - 🔴 **Listening (Red)**: Displays a 30-bar live audio amplitude meter alongside your real-time cumulative transcription.
+  - 🔵 **Processing (Blue)**: Animated traveling sine wave pulse during `Transcribing...` and `Cleaning...`.
+  - 🟠 **Error (Orange)**: Shows actionable error messages and automatically dismisses after 2.5 seconds.
+- **Smart Text Ellipsization**: Long live utterances are smoothly ellipsized (`...`) with Pango, guaranteeing the square stop button remains cleanly aligned and never clipped off-screen.
+
 ### Voice Commands
 
 Start your dictation with your configured `COMMAND_PREFIX` (default: `"computer"`) to trigger instant actions:
@@ -358,7 +373,7 @@ AutoType/
 │
 ├── context/               # Window detection, voice commands, clipboard history
 ├── desktop/               # X11 clipboard integration, key simulation, window title parsing
-├── ui/                    # Floating taskbar overlay pill, tray icon, profile storage
+├── ui/                    # Floating taskbar overlay pill with stop button, tray icon, profile storage
 └── data/                  # Local history logs, custom prompt, personal vocabulary
 ```
 
