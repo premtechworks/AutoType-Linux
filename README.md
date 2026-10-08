@@ -147,8 +147,8 @@ sudo apt install \
 ### 2. Clone the Repository & Setup Virtual Environment
 
 ```bash
-git clone https://github.com/premkumar-1122/AutoType.git
-cd AutoType
+git clone https://github.com/premtechworks/AutoType-Linux.git
+cd AutoType-Linux
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -301,7 +301,7 @@ nohup .venv/bin/python app.py >/dev/null 2>&1 &
 3. Set **Command** to:
 
    ```bash
-   /full/path/to/AutoType/.venv/bin/python /full/path/to/AutoType/app.py
+   /full/path/to/AutoType-Linux/.venv/bin/python /full/path/to/AutoType-Linux/app.py
    ```
 
 ---
