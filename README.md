@@ -11,9 +11,9 @@ AutoType is a fast, flexible, open-source Linux alternative to [Wispr Flow](http
 ## What It Does
 
 1. **Trigger anywhere**: Double-tap `Right Alt` in any text field, IDE, browser, or terminal.
-2. **Audio feedback**: A subtle floating pill appears above the taskbar displaying a live waveform meter and real-time accumulated transcription.
+2. **Audio feedback**: A premium dark glassmorphism floating voice assistant widget appears above the taskbar displaying a vector microphone indicator, a live 42-bar glowing waveform visualizer, an elapsed timer, and a dedicated live transcript strip.
 3. **Speech-to-Text with pause resilience**: Captures your voice via Cloud STT or 100% on-device Local STT. Short or long pauses (2+ seconds) never cut off or discard your dictation; all audio between starting and stopping is transcribed continuously.
-4. **Instant cancellation**: Click the integrated square stop button (`■`) on the floating pill overlay at any point during listening, transcribing, or cleaning to abort immediately without pasting, leaving the background daemon ready for your next dictation.
+4. **Instant cancellation**: Click the integrated square stop button (`■`) on the floating widget at any point during listening, transcribing, or cleaning to abort immediately without pasting, leaving the background daemon ready for your next dictation.
 5. **Deterministic normalization**: Handles spoken punctuation (`"comma"`, `"new line"`), bulleted lists, and personal vocabulary casing without hallucinations.
 6. **Intelligent LLM cleanup**: Removes stutters and filler words (`"um"`, `"uh"`), formats code snippets, and matches the tone of your current application.
 7. **Instant paste**: Automatically pastes the text into the focused window and restores your previous clipboard contents.
@@ -254,38 +254,48 @@ AutoType comes with an intuitive, native GTK3/libhandy settings manager:
 
 1. Place your cursor in any application (browser, Slack, VS Code, terminal).
 2. Double-tap **Right Alt** (two quick taps within 0.4s).
-3. The on-screen pill turns red with a live waveform showing active recording.
+3. The floating glassmorphic widget appears above your taskbar with a pulsing cyan/teal microphone indicator and live animated waveform.
 4. Speak naturally. Take your time to think or breathe — pauses (even 2+ seconds or longer) will not cut off your audio.
 5. Double-tap **Right Alt** again.
-6. The pill transitions to `Transcribing...` → `Cleaning...` → `Done`, and types the result directly into your active window.
+6. The widget transitions to `Transcribing...` → `Cleaning...` → `Done`, and types the result directly into your active window.
 
 ### Continuous Dictation & Natural Pauses
 
 Unlike conventional speech systems that drop or overwrite earlier speech when you pause, AutoType uses **multi-turn turn accumulation**:
 - Pausing for 2 or more seconds to think or breathe keeps your entire previous stream intact.
-- The floating pill displays your full cumulative dictation as you speak.
+- The dedicated live transcript strip displays your full cumulative dictation with automatic horizontal marquee scrolling as you speak.
 - 100% of the speech captured between turning ON listening and turning OFF listening (double-tap `Right Alt`) is passed to cleaning and pasting.
 
 ### Instant Cancellation (On-Widget Stop Button)
 
 Need to abort what you just said midway?
 
-- Click the square **Stop** button (`■`) embedded directly on the floating pill overlay at any time while listening, transcribing, or cleaning.
+- Click the square **Stop** button (`■`) embedded directly on the floating widget at any time while listening, transcribing, or cleaning.
 - The active audio capture or background processing terminates immediately, the floating widget disappears, and no text is pasted.
 - The button stays visible across listening, transcribing, and cleaning states, disappearing along with the widget once processing completes or is cancelled.
 - The daemon remains running silently in the background, ready for your next dictation gesture (double-tap `Right Alt`).
 
-### Floating Taskbar Pill Widget
+### Floating Glassmorphic Voice Assistant Widget
 
-The floating pill widget sits unobtrusively centered above your taskbar on X11:
+The floating voice assistant widget sits centered above your taskbar on X11:
 
-- **Zero Focus Stealing**: Built as a native GTK3 popup with `accept_focus=False`, ensuring your keyboard focus never leaves your active window, IDE, or terminal.
-- **Embedded Stop Button (`■`)**: A discreet square stop button styled seamlessly within the header bar. Clicking it terminates all in-flight audio capture, STT transcription, and LLM cleaning without stealing focus or altering clipboard history.
+- **Two-Row Glassmorphism Layout**: Translucent dark glass card (`800×132px`, `rgba(7, 16, 23, 0.94)`) with large rounded corners and a subtle teal border.
+- **Row 1 (Controls & Waveform)**:
+  - **Vector Microphone Indicator**: Cairo-rendered glowing teal status circle with breathing pulse animation while listening.
+  - **Status Typography**: Clear hierarchy with 18px bold status title (`Listening...`, `Transcribing...`, `Cleaning...`, `Error`) and 12px subtitle (`Speak naturally...`, `Converting speech to text`, `Formatting your text`). Status titles stay dedicated to state and are never overwritten by transcripts.
+  - **Dynamic Audio Waveform**: 42 slim rounded vertical bars with bell-curve tapering and glowing teal-to-cyan gradient, reacting dynamically to voice levels.
+  - **Elapsed Recording Timer**: Tabular monospace counter (`0:00`, `0:18`) tracking dictation duration.
+  - **Embedded Red Stop Button (`■`)**: Discreet $44\times44\text{ px}$ button styled in translucent red. Clicking it terminates all in-flight audio capture, STT transcription, and LLM cleaning.
+- **Row 2 (Live Transcript Strip)**:
+  - **Dedicated Inset Glass Strip**: Inset pill container (`rgba(10, 22, 31, 0.65)`) showing real-time streaming partial transcriptions.
+  - **Smooth Horizontal Marquee**: Short utterances display cleanly; long utterances automatically marquee-scroll smoothly with the latest spoken words and blinking teal caret (`|`) pinned to the right edge.
+  - **Left Edge Fade Mask**: Subtle gradient fade ensuring older words smoothly fade out as they scroll into the margin.
+  - **Chevron Badge**: Right circular badge with vector chevron (`›`) matching modern assistant aesthetics.
+- **Zero Focus Stealing**: Built as a native GTK3 popup with `accept_focus=False`, `focus_on_map=False`, and `set_focus_on_click=False` on the stop button, ensuring your keyboard focus never leaves your active window, IDE, or terminal.
 - **Dynamic Waveform States**:
-  - 🔴 **Listening (Red)**: Displays a 30-bar live audio amplitude meter alongside your real-time cumulative transcription.
-  - 🔵 **Processing (Blue)**: Animated traveling sine wave pulse during `Transcribing...` and `Cleaning...`.
-  - 🟠 **Error (Orange)**: Shows actionable error messages and automatically dismisses after 2.5 seconds.
-- **Smart Text Ellipsization**: Long live utterances are smoothly ellipsized (`...`) with Pango, guaranteeing the square stop button remains cleanly aligned and never clipped off-screen.
+  - 🟢 **Listening**: 42 dynamic pill bars with bell-curve envelope reacting to voice amplitude with teal $\rightarrow$ sky blue gradient.
+  - 🔵 **Processing**: Animated traveling sine wave pulse in cyan $\rightarrow$ indigo during `Transcribing...` and `Cleaning...`.
+  - 🟠 **Error**: Shows actionable error messages in warm orange and automatically dismisses after 2.5 seconds.
 
 ### Voice Commands
 
@@ -373,7 +383,7 @@ AutoType/
 │
 ├── context/               # Window detection, voice commands, clipboard history
 ├── desktop/               # X11 clipboard integration, key simulation, window title parsing
-├── ui/                    # Floating taskbar overlay pill with stop button, tray icon, profile storage
+├── ui/                    # Floating glassmorphic voice overlay widget, tray icon, profile storage
 └── data/                  # Local history logs, custom prompt, personal vocabulary
 ```
 
