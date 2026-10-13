@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.premtechworks.AutoType</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>AutoType</name>
+  <summary>Voice-typing daemon for Linux Mint XFCE on X11</summary>
+  <developer id="io.github.premtechworks">
+    <name>premtechworks</name>
+  </developer>
+  <description>
+    <p>
+      AutoType is an open-source, local-first voice typing daemon and assistant designed for Linux Mint XFCE and X11 desktop environments.
+      It features double-tap Right Alt activation, cloud speech-to-text (Deepgram, OpenAI Whisper, Groq, NVIDIA NIM) and offline STT (Parakeet),
+      LLM-assisted text normalization and cleaning, clipboard preservation, and a floating glassmorphic overlay widget with an integrated stop button.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.premtechworks.AutoType.desktop</launchable>
+  <url type="homepage">https://github.com/premtechworks/AutoType-Linux</url>
+  <url type="bugtracker">https://github.com/premtechworks/AutoType-Linux/issues</url>
+  <provides>
+    <binary>autotype</binary>
+  </provides>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="1.0.0" date="2026-10-10">
+      <description>
+        <p>AutoType v1.0.0 official release featuring unified CLI, XDG configuration, multi-backend STT, and pause-resilient dictation.</p>
+      </description>
+    </release>
+  </releases>
+</component>

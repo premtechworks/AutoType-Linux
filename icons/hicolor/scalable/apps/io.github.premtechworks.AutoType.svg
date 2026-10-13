@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1e2e"/>
+      <stop offset="100%" stop-color="#11111b"/>
+    </linearGradient>
+    <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#89b4fa"/>
+      <stop offset="100%" stop-color="#cba6f7"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bgGrad)" stroke="#45475a" stroke-width="2"/>
+  <!-- Microphone body -->
+  <rect x="52" y="30" width="24" height="42" rx="12" fill="url(#waveGrad)"/>
+  <!-- Microphone arc -->
+  <path d="M40 54 C40 74, 88 74, 88 54" fill="none" stroke="#cdd6f4" stroke-width="6" stroke-linecap="round"/>
+  <!-- Microphone stand -->
+  <path d="M64 74 L64 92 M48 92 L80 92" fill="none" stroke="#cdd6f4" stroke-width="6" stroke-linecap="round"/>
+  <!-- Sound waves -->
+  <path d="M26 50 C22 57, 22 67, 26 74" fill="none" stroke="#89b4fa" stroke-width="4" stroke-linecap="round"/>
+  <path d="M102 50 C106 57, 106 67, 102 74" fill="none" stroke="#89b4fa" stroke-width="4" stroke-linecap="round"/>
+</svg>

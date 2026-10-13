@@ -1,0 +1,81 @@
+name: autotype
+arch: amd64
+platform: linux
+version: 1.0.0
+release: 1
+section: utils
+priority: optional
+maintainer: Prem kumar Gara <premtechworks@gmail.com>
+description: |
+  Voice-typing daemon for Linux Mint XFCE on X11.
+  Features double-tap Right Alt activation, cloud and local speech-to-text,
+  LLM cleaning, and clipboard preservation.
+vendor: premtechworks
+homepage: https://github.com/premtechworks/AutoType-Linux
+license: MIT
+
+contents:
+  - src: usr/bin/autotype
+    dst: /usr/bin/autotype
+    file_info:
+      mode: 0755
+  - src: usr/lib/python3/dist-packages/autotype
+    dst: /usr/lib/python3/dist-packages/autotype
+  - src: usr/lib/python3/dist-packages/audio
+    dst: /usr/lib/python3/dist-packages/audio
+  - src: usr/lib/python3/dist-packages/context
+    dst: /usr/lib/python3/dist-packages/context
+  - src: usr/lib/python3/dist-packages/desktop
+    dst: /usr/lib/python3/dist-packages/desktop
+  - src: usr/lib/python3/dist-packages/llm
+    dst: /usr/lib/python3/dist-packages/llm
+  - src: usr/lib/python3/dist-packages/stt
+    dst: /usr/lib/python3/dist-packages/stt
+  - src: usr/lib/python3/dist-packages/ui
+    dst: /usr/lib/python3/dist-packages/ui
+  - src: usr/lib/python3/dist-packages/utils
+    dst: /usr/lib/python3/dist-packages/utils
+  - src: io.github.premtechworks.AutoType.desktop
+    dst: /usr/share/applications/io.github.premtechworks.AutoType.desktop
+    file_info:
+      mode: 0644
+  - src: io.github.premtechworks.AutoType.metainfo.xml
+    dst: /usr/share/metainfo/io.github.premtechworks.AutoType.metainfo.xml
+    file_info:
+      mode: 0644
+  - src: icons/hicolor/scalable/apps/io.github.premtechworks.AutoType.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/io.github.premtechworks.AutoType.svg
+    file_info:
+      mode: 0644
+
+deb:
+  fields:
+    Package: autotype
+    Architecture: amd64
+  depends:
+    - python3 (>= 3.10)
+    - python3-gi
+    - python3-gi-cairo
+    - gir1.2-gtk-3.0
+    - libportaudio2
+  recommends:
+    - xdotool
+    - libnotify-bin
+  suggests:
+    - pulseaudio-utils
+    - xclip
+
+rpm:
+  summary: Voice-typing daemon for Linux Mint XFCE on X11
+  compression: gzip
+  arch: x86_64
+  depends:
+    - python3 >= 3.10
+    - python3-gobject
+    - gtk3
+    - portaudio
+  recommends:
+    - xdotool
+    - libnotify
+  suggests:
+    - pulseaudio-utils

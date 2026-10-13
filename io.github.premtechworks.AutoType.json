@@ -1,0 +1,44 @@
+{
+  "app-id": "io.github.premtechworks.AutoType",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "46",
+  "sdk": "org.gnome.Sdk",
+  "command": "autotype",
+  "finish-args": [
+    "--socket=x11",
+    "--socket=pulseaudio",
+    "--talk-name=org.freedesktop.Notifications",
+    "--filesystem=xdg-config/autotype",
+    "--filesystem=xdg-data/autotype",
+    "--device=all"
+  ],
+  "modules": [
+    {
+      "name": "portaudio",
+      "buildsystem": "autotools",
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://files.portaudio.com/archives/pa_stable_v190700_20210406.tgz",
+          "sha256": "47ef492e0cc56192acda659dda9d0e8200e495a381bc1073379208a38341ea80"
+        }
+      ]
+    },
+    {
+      "name": "autotype",
+      "buildsystem": "simple",
+      "build-commands": [
+        "pip3 install --no-index --find-links=file://$(pwd)/wheels --prefix=/app .",
+        "install -D -m 0644 io.github.premtechworks.AutoType.desktop /app/share/applications/io.github.premtechworks.AutoType.desktop",
+        "install -D -m 0644 io.github.premtechworks.AutoType.metainfo.xml /app/share/metainfo/io.github.premtechworks.AutoType.metainfo.xml",
+        "install -D -m 0644 icons/hicolor/scalable/apps/io.github.premtechworks.AutoType.svg /app/share/icons/hicolor/scalable/apps/io.github.premtechworks.AutoType.svg"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AutoType
+GenericName=Voice Typing Assistant
+Comment=Voice-typing daemon for Linux Mint XFCE on X11
+Exec=autotype daemon
+Icon=io.github.premtechworks.AutoType
+Terminal=false
+Categories=Utility;Accessibility;
+Keywords=voice;typing;speech-to-text;dictation;stt;audio;transcription;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
