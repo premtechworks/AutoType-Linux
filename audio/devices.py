@@ -203,11 +203,22 @@ def _have_pactl() -> bool:
 
 
 def default_source_name() -> str:
-    """PipeWire default source (e.g. bluez_input.... or alsa_input...)."""
-    if not _have_pactl():
-        return ""
+    """PipeWire default source (e.g. bluez_input.... or alsa_input...).
+
+    Tries pactl first; if pactl is unavailable or fails, falls back to
+    querying the default input device name via PortAudio (sounddevice).
+    """
+    if _have_pactl():
+        try:
+            return _run(["pactl", "get-default-source"]).strip()
+        except Exception:
+            pass
+
+    # Python-native fallback via sounddevice / PortAudio
     try:
-        return _run(["pactl", "get-default-source"]).strip()
+        import sounddevice as sd
+        dev = sd.query_devices(kind="input")
+        return str(dev.get("name", "")).strip()
     except Exception:
         return ""
 
@@ -344,7 +355,7 @@ def bt_voice_ready() -> tuple[bool, str]:
 def set_bt_profile(card: str, profile: str) -> str:
     """Switch a BT card's profile. Raises RuntimeError on failure."""
     if not _have_pactl():
-        raise RuntimeError("pactl not found (install pulseaudio-utils).")
+        raise RuntimeError("pactl not found (install pulseaudio-utils for Bluetooth profile switching).")
     try:
         _run(["pactl", "set-card-profile", card, profile])
     except subprocess.CalledProcessError as exc:
@@ -429,8 +440,8 @@ def _bluez_input_name() -> str:
 # -- remembered working codec ---------------------------------------------
 
 def _bt_state_path():
-    from pathlib import Path
-    return Path(__file__).resolve().parent.parent / "data" / "bt_audio.json"
+    from autotype.paths import get_data_dir
+    return get_data_dir() / "bt_audio.json"
 
 
 def remembered_voice_profile() -> str:

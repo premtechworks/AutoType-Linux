@@ -42,7 +42,9 @@ def profile_to_mode(profile: str) -> str:
     """Map a detected app profile to its default style mode."""
     return PROFILE_TO_MODE.get(profile, "clean")
 
-OVERRIDES_PATH = Path(__file__).resolve().parent.parent / "data" / "profiles.json"
+from autotype.paths import get_data_dir
+
+OVERRIDES_PATH = get_data_dir() / "profiles.json"
 
 
 def _custom_hints() -> dict[str, tuple[str, ...]]:
