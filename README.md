@@ -1,46 +1,181 @@
 # AutoType
 
-Voice typing for Linux Mint XFCE. Double-tap **Right Alt**, speak, and clean formatted text is instantly pasted into whatever window you are using.
-
-AutoType is a fast, flexible, open-source Linux alternative to [Wispr Flow](https://wisprflow.ai). It runs as a lightweight, silent background daemon: listening for a single hotkey gesture, converting speech to text, intelligently cleaning the transcription, and typing it into your active app.
-
-**Bring your own providers**: AutoType is completely provider-agnostic. Choose any popular AI provider for text cleaning (**OpenAI, Anthropic Claude, xAI Grok, DeepSeek, Qwen, NVIDIA NIM, Groq, OpenRouter, Ollama**, or your own **Custom API endpoint** like OmniRoute or vLLM). For voice transcription, choose between **Cloud STT** (Deepgram, OpenAI Whisper, Groq, NVIDIA NIM) or **100% Local Offline STT** (Parakeet streaming and batch models).
+AutoType is a fast, flexible, open-source Linux voice-typing assistant and background daemon built for Linux Mint XFCE and X11 desktop environments. Double-tap **Right Alt**, speak, and clean, formatted text is instantly typed into your active window.
 
 ---
 
-## What It Does
+## Features
 
-1. **Trigger anywhere**: Double-tap `Right Alt` in any text field, IDE, browser, or terminal.
-2. **Audio feedback**: A premium dark glassmorphism floating voice assistant widget appears above the taskbar displaying a vector microphone indicator, a live 42-bar glowing waveform visualizer, an elapsed timer, and a dedicated live transcript strip.
-3. **Speech-to-Text with pause resilience**: Captures your voice via Cloud STT or 100% on-device Local STT. Short or long pauses (2+ seconds) never cut off or discard your dictation; all audio between starting and stopping is transcribed continuously.
-4. **Instant cancellation**: Click the integrated square stop button (`■`) on the floating widget at any point during listening, transcribing, or cleaning to abort immediately without pasting, leaving the background daemon ready for your next dictation.
-5. **Deterministic normalization**: Handles spoken punctuation (`"comma"`, `"new line"`), bulleted lists, and personal vocabulary casing without hallucinations.
-6. **Intelligent LLM cleanup**: Removes stutters and filler words (`"um"`, `"uh"`), formats code snippets, and matches the tone of your current application.
-7. **Instant paste**: Automatically pastes the text into the focused window and restores your previous clipboard contents.
-
-The same gesture (double-tapping `Right Alt`) stops recording and triggers typing.
-
----
-
-## Why Choose AutoType Over Wispr Flow?
-
-Wispr Flow is a proprietary, subscription-based commercial application primarily focused on macOS and Windows. AutoType is purpose-built for Linux users who want complete control over their desktop, privacy, and models.
-
-| Feature | AutoType | Wispr Flow |
-| --- | --- | --- |
-| **Linux Native** | Built for Linux Mint XFCE & X11 desktops | Not a primary platform |
-| **Pricing** | **100% Free & Open Source**. Pay only your own API provider rates (fractions of a cent) or run completely free offline | Monthly/annual paid subscription |
-| **Pause Resilience** | **Multi-turn accumulation**: 2+ second pauses never discard or cut off speech | Cuts off or splits utterances on silence |
-| **Midway Cancellation** | **On-widget square stop button (`■`)** cancels cleanly at any stage | Limited / hotkey dependent |
-| **Offline Speech** | **Yes** — 100% offline Local STT using Parakeet GGUF models | Cloud only |
-| **LLM Cleaning Provider** | **Bring your own**: OpenAI, Anthropic, Grok, DeepSeek, Qwen, NVIDIA NIM, Groq, Ollama, or Custom endpoints | Proprietary locked model |
-| **Custom Prompts & Vocab** | Full control over system prompts, vocabulary lists, and style modes | Limited custom dictionary |
-| **Clipboard Safety** | Automatically backs up and restores previous clipboard contents | Overwrites clipboard |
-| **Privacy** | Choose 100% on-device processing (Local STT + Local LLM) with zero data leaving your PC | Audio streamed to third-party cloud |
+- **Voice Dictation Anywhere**: Double-tap `Right Alt` in any text field, code editor, browser, or terminal to begin and end dictation.
+- **Cloud STT**: Low-latency transcription via Deepgram (Flux real-time & Nova-3), OpenAI Whisper, Groq Whisper (<300ms), NVIDIA NIM, or custom OpenAI-compatible speech endpoints.
+- **100% Offline STT**: Air-gapped, on-device transcription with Parakeet GGUF models (`parakeet-cli` streaming and `transcribe-cli` batch).
+- **LLM Cleanup Providers**: Intelligent rewriting and filler removal with OpenAI, Anthropic Claude, xAI Grok, DeepSeek, Qwen, NVIDIA NIM, Groq, Ollama (local), or custom endpoints.
+- **Voice Commands**: Prefix dictation with `"computer"` for one-shot controls (`computer raw`, `computer code`, `computer email`, `computer cancel`).
+- **Deterministic Spoken Punctuation & Lists**: Real-time normalization for punctuation (`"comma"`, `"period"`, `"new line"`) and bulleted/numbered lists without hallucination.
+- **Clipboard Restoration**: Captures prior clipboard state and restores text or images immediately after pasting.
+- **Floating Glassmorphic Overlay**: Dark translucent widget with vector microphone indicator, 42-bar glowing waveform visualizer, live transcript strip, and an integrated **square stop button (`■`)** for instant cancellation midway.
+- **X11 Display Server**: Native keystroke injection via `python-xlib` and GTK3 clipboard integration (X11 only).
 
 ---
 
-## Architecture: How a Sentence Reaches Your Screen
+## Download & Installation
+
+AutoType v1.0.0 release packages can be downloaded from the [GitHub Releases](https://github.com/premtechworks/AutoType-Linux/releases) page.
+
+### 1. Debian / Ubuntu / Linux Mint (`.deb`)
+
+```bash
+sudo apt install ./autotype_1.0.0_amd64.deb
+```
+
+*Terminal alternative (dpkg):*
+
+```bash
+sudo dpkg -i autotype_1.0.0_amd64.deb && sudo apt-get install -f
+```
+
+### 2. Fedora / RHEL (`.rpm`)
+
+```bash
+sudo dnf install ./autotype-1.0.0-1.x86_64.rpm
+```
+
+*Terminal alternative (rpm):*
+
+```bash
+sudo rpm -ivh autotype-1.0.0-1.x86_64.rpm
+```
+
+### 3. AppImage
+
+```bash
+chmod +x AutoType-1.0.0-x86_64.AppImage
+./AutoType-1.0.0-x86_64.AppImage
+```
+
+### 4. Flatpak
+
+```bash
+flatpak install --user ./AutoType-1.0.0.flatpak
+flatpak run io.github.premtechworks.AutoType
+```
+
+### Verify Integrity
+
+Verify release asset integrity using the provided `SHA256SUMS`:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+---
+
+## First Run & Setup
+
+1. **Configuration File**:
+   AutoType adheres to the XDG Base Directory specification. Configuration is stored at:
+   ```text
+   ~/.config/autotype/config.toml
+   ```
+   Permissions are strictly locked to `0600` to safeguard stored API credentials.
+
+2. **Open the Settings GUI**:
+   Open the native GTK3 preferences manager to configure your providers, hotkeys, and microphones:
+   ```bash
+   autotype settings
+   ```
+   *(Or launch "AutoType" from your desktop applications menu).*
+
+3. **Install a Local Speech Model (Optional)**:
+   List and install recommended offline GGUF speech models:
+   ```bash
+   autotype download-model --list
+   autotype download-model --all-recommended
+   ```
+
+4. **Add an API Key**:
+   Configure cloud STT or LLM cleaning API keys either via `autotype settings` or by setting them in `~/.config/autotype/config.toml` (or legacy `.env`):
+   ```toml
+   [stt]
+   backend = "deepgram"
+   api_key = "your_deepgram_api_key"
+
+   [llm]
+   provider = "openai"
+   api_key = "your_openai_api_key"
+   model = "gpt-4o-mini"
+   ```
+
+5. **Run Diagnostics**:
+   Verify that your microphone, audio subsystem, X11 session, and dependencies are functioning correctly:
+   ```bash
+   autotype doctor
+   ```
+   For machine-readable JSON output:
+   ```bash
+   autotype doctor --json
+   ```
+
+6. **Start the Background Daemon**:
+   ```bash
+   autotype daemon
+   ```
+
+---
+
+## Upgrading & Uninstalling
+
+### Debian / Ubuntu / Linux Mint
+- **Upgrade**: `sudo apt install --only-upgrade ./autotype_1.0.0_amd64.deb`
+- **Uninstall**: `sudo apt remove autotype`
+
+### Fedora
+- **Upgrade**: `sudo dnf upgrade ./autotype-1.0.0-1.x86_64.rpm`
+- **Uninstall**: `sudo dnf remove autotype`
+
+### AppImage
+- **Upgrade**: Replace the `.AppImage` binary with the new version and make it executable.
+- **Uninstall**: Delete the `.AppImage` file and desktop integration links.
+
+### Flatpak
+- **Upgrade**: `flatpak update io.github.premtechworks.AutoType`
+- **Uninstall**: `flatpak uninstall --user io.github.premtechworks.AutoType`
+
+---
+
+## Troubleshooting
+
+- **Wayland Not Supported**: AutoType relies on X11 protocol calls (`python-xlib` and XTest extension) for active window introspection and global synthetic keystrokes. Under Wayland, the daemon will refuse to start. Select an **X11 / Xorg** session at your display manager login screen.
+- **Flatpak Sandbox Limitations**: The Flatpak bundle requires access to the host X11 socket (`--socket=x11`) and PulseAudio (`--socket=pulseaudio`). Global hotkey listening and window-level auto-pasting may require additional host desktop portal permissions depending on your compositor.
+- **Locating Logs**:
+  Logs are rotated automatically (1 MB limit, 3 backups) and stored at:
+  ```text
+  ~/.local/state/autotype/autotype.log
+  ```
+  Sensitive API keys and bearer tokens are automatically redacted in log files.
+- **Filing a Bug Report**:
+  When submitting an issue, run and attach the diagnostic report:
+  ```bash
+  autotype doctor --json > doctor-report.json
+  ```
+
+---
+
+## Known Limitations
+
+- **X11 Only**: Linux Mint XFCE, Cinnamon (X11), MATE, and standard X11 sessions are supported. Wayland is not supported.
+- **Microphone & Bluetooth**: Bluetooth headsets in A2DP playback mode have no input voice channel. Automatic profile switching to HSP/HFP requires `pactl` from `pulseaudio-utils`.
+- **Headless Environments**: GUI overlays, tray icons, global hotkeys, and synthetic keystroke paste operations require an active X11 graphical display (`DISPLAY`).
+
+---
+
+## Development Setup
+
+For instructions on building from source, running tests, and setting up an editable virtual environment, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+---
+
+## Architecture: How Speech Reaches Your Screen
 
 ```text
                     [ Microphone ]
@@ -75,16 +210,16 @@ Wispr Flow is a proprietary, subscription-based commercial application primarily
                           │
                           ▼
                [ Desktop Output Layer ]
-   • Window detection (xdotool) → adaptive style (code / email / chat)
+   • Window detection (python-xlib, xdotool fallback) → adaptive style (code / email / chat)
    • Auto-paste into focused window (Ctrl+V / Ctrl+Shift+V)
-   • Clipboard restored to previous content
+   • Clipboard restored to previous content (Gtk.Clipboard)
 ```
 
 ---
 
-## 1. LLM Cleaning Providers
+## LLM Cleaning Providers
 
-AutoType eliminates hardcoded vendor lock-in. You can use any major AI provider or bring your own self-hosted server:
+AutoType eliminates vendor lock-in. You can use any major AI provider or bring your own self-hosted endpoint:
 
 | Provider | Protocol | Default Model | Typical Use Case |
 | --- | --- | --- | --- |
@@ -99,301 +234,50 @@ AutoType eliminates hardcoded vendor lock-in. You can use any major AI provider 
 | **Ollama (Local)** | `/v1/chat/completions` | `llama3.2` | 100% private, on-device local cleaning |
 | **Custom API Provider** | `/v1/chat/completions` | Custom / `auto` | Bring your own endpoint (e.g. OmniRoute, vLLM, LiteLLM) |
 
-Configure your provider easily via the graphical **Settings GUI** or by editing `.env`.
-
----
-
-## 2. Speech-to-Text: Cloud vs Local
-
-AutoType cleanly separates speech recognition into two distinct pipelines:
-
-### Cloud STT (Online API)
-
-For maximum vocabulary coverage and rapid setup using cloud APIs:
-
-- **Deepgram**: Real-time websocket streaming with Deepgram Flux (`flux-general-en`) and batch accuracy with Nova-3 (`nova-3`).
-- **OpenAI Whisper**: Standard cloud transcription (`whisper-1`).
-- **Groq Whisper Cloud**: Accelerated Whisper Large v3 Turbo processing in ~250ms.
-- **NVIDIA NIM Cloud ASR**: Accelerated cloud speech recognition (`nvidia/parakeet-ctc-1.1b-asr`).
-- **Custom Cloud STT**: Connect to any OpenAI-compatible `/v1/audio/transcriptions` endpoint.
-
-### Local STT (100% Offline & Private)
-
-For air-gapped environments or total data sovereignty:
-
-- **Parakeet Stream**: Real-time on-device streaming powered by `parakeet-cli` and an End-of-Utterance (EOU) 120M GGUF model. Audio is transcribed as you speak.
-- **Parakeet Batch**: High-accuracy offline transcription powered by `transcribe-cli` and a 0.6B GGUF model. Transcribes immediately upon releasing the hotkey.
-
----
-
-## Prerequisites
-
-- **Linux Mint XFCE** (or any X11 desktop environment). *Note: Wayland is not supported as window-tracking and synthetic keystrokes rely on X11.*
-- **Python 3.10+** (developed on Python 3.12).
-- **Audio subsystem**: PipeWire (recommended) or PulseAudio.
-- **API Keys**: Depending on your choice of Cloud STT and AI Cleaning Provider.
-
----
-
-## Installation & Setup
-
-### 1. Install System Dependencies
-
-```bash
-sudo apt update
-sudo apt install \
-  python3 python3-venv python3-pip \
-  python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-handy-1 \
-  libportaudio2 \
-  xclip xdotool libnotify-bin pulseaudio-utils
-```
-
-### 2. Clone the Repository & Setup Virtual Environment
-
-```bash
-git clone https://github.com/premtechworks/AutoType-Linux.git
-cd AutoType-Linux
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 3. Configure Your Environment (`.env`)
-
-```bash
-cp .env.example .env
-chmod 600 .env
-```
-
-Open `.env` in your editor or configure everything via the GTK Settings GUI.
-
-#### Example 1: OpenAI (ChatGPT) + Deepgram Cloud STT
-
-```env
-# Cleaning Provider
-LLM_PROVIDER=openai
-LLM_API_KEY=sk-...
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_MODEL=gpt-4o-mini
-
-# Speech Engine
-STT_BACKEND=deepgram
-DEEPGRAM_API_KEY=your_deepgram_key
-```
-
-#### Example 2: Anthropic (Claude) + Groq Whisper STT
-
-```env
-# Cleaning Provider
-LLM_PROVIDER=anthropic
-LLM_API_KEY=sk-ant-...
-LLM_BASE_URL=https://api.anthropic.com/v1
-LLM_MODEL=claude-3-5-haiku-20241022
-
-# Speech Engine
-STT_BACKEND=groq
-CLOUD_STT_API_KEY=gsk_...
-CLOUD_STT_BASE_URL=https://api.groq.com/openai/v1
-CLOUD_STT_MODEL=whisper-large-v3-turbo
-```
-
-#### Example 3: 100% Local & Offline (Ollama + Parakeet)
-
-```env
-# Cleaning Provider
-LLM_PROVIDER=ollama
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_MODEL=llama3.2
-
-# Speech Engine (100% Offline)
-STT_BACKEND=parakeet_stream
-PARAKEET_STREAM_BINARY=/path/to/parakeet-cli
-PARAKEET_STREAM_MODEL=/path/to/parakeet-eou-120m-q8_0.gguf
-```
-
-#### Example 4: Custom API Provider (e.g. OmniRoute)
-
-```env
-# Custom API Endpoint
-LLM_PROVIDER=custom
-LLM_BASE_URL=http://127.0.0.1:20128/v1
-LLM_API_KEY=your_key
-LLM_MODEL=auto
-
-STT_BACKEND=deepgram
-DEEPGRAM_API_KEY=your_deepgram_key
-```
-
-*(Note: Legacy `OMNIROUTE_*` environment variables are automatically mapped to `LLM_*` for backwards compatibility).*
-
 ---
 
 ## Graphical Settings GUI
 
-AutoType comes with an intuitive, native GTK3/libhandy settings manager:
+AutoType comes with an intuitive, native GTK3 settings manager:
 
 ```bash
-./open-settings.sh
+autotype settings
 ```
 
-*(Or right-click the tray icon and select **Settings…**).*
+*(Or right-click the system tray icon and select **Settings…**).*
 
-### Settings Pages
-
-- **General**: Choose default processing mode (`clean`, `raw`, `smart`, `code`), configure personal vocabulary, and restart the daemon.
-- **Speech**: Switch between **Cloud STT** (Deepgram, OpenAI, Groq, NVIDIA, Custom) and **Local STT** (Parakeet Stream/Batch). Test API credentials and verify local binary files.
-- **Cleaning**: Select your **API Provider** (OpenAI, Anthropic Claude, Grok, DeepSeek, Qwen, NVIDIA NIM, Groq, Ollama, Custom). The UI automatically populates the correct base URLs and default models. Run live connection tests on your endpoint.
-- **Microphone**: Select your input hardware, follow dynamic PipeWire switches, and toggle Bluetooth HSP/HFP voice profiles.
-- **Advanced**: Toggle debug WAV dumps and customize keyboard timings.
+- **General**: Default processing mode (`clean`, `raw`, `smart`, `code`), vocabulary editor, daemon control.
+- **Speech**: Switch between Cloud STT and Local STT, test credentials, and download speech models.
+- **Cleaning**: Select provider, endpoint URL, and model. Run live connection tests.
+- **Microphone**: Select hardware device, follow PipeWire dynamic routing, toggle Bluetooth voice profile.
+- **Advanced**: Audio dump toggles, key repeat delays, and timing settings.
 
 ---
 
-## How to Use
+## Dictation & Voice Assistant Usage
 
-### Basic Voice Typing
+### Continuous Dictation Across Pauses
+AutoType features **multi-turn accumulation**:
+- Speaking, pausing for 2+ seconds to think, and continuing to speak does not truncate or split your transcription.
+- 100% of speech between starting and stopping is accumulated and cleaned.
 
-1. Place your cursor in any application (browser, Slack, VS Code, terminal).
-2. Double-tap **Right Alt** (two quick taps within 0.4s).
-3. The floating glassmorphic widget appears above your taskbar with a pulsing cyan/teal microphone indicator and live animated waveform.
-4. Speak naturally. Take your time to think or breathe — pauses (even 2+ seconds or longer) will not cut off your audio.
-5. Double-tap **Right Alt** again.
-6. The widget transitions to `Transcribing...` → `Cleaning...` → `Done`, and types the result directly into your active window.
-
-### Continuous Dictation & Natural Pauses
-
-Unlike conventional speech systems that drop or overwrite earlier speech when you pause, AutoType uses **multi-turn turn accumulation**:
-- Pausing for 2 or more seconds to think or breathe keeps your entire previous stream intact.
-- The dedicated live transcript strip displays your full cumulative dictation with automatic horizontal marquee scrolling as you speak.
-- 100% of the speech captured between turning ON listening and turning OFF listening (double-tap `Right Alt`) is passed to cleaning and pasting.
-
-### Instant Cancellation (On-Widget Stop Button)
-
-Need to abort what you just said midway?
-
-- Click the square **Stop** button (`■`) embedded directly on the floating widget at any time while listening, transcribing, or cleaning.
-- The active audio capture or background processing terminates immediately, the floating widget disappears, and no text is pasted.
-- The button stays visible across listening, transcribing, and cleaning states, disappearing along with the widget once processing completes or is cancelled.
-- The daemon remains running silently in the background, ready for your next dictation gesture (double-tap `Right Alt`).
-
-### Floating Glassmorphic Voice Assistant Widget
-
-The floating voice assistant widget sits centered above your taskbar on X11:
-
-- **Two-Row Glassmorphism Layout**: Translucent dark glass card (`800×132px`, `rgba(7, 16, 23, 0.94)`) with large rounded corners and a subtle teal border.
-- **Row 1 (Controls & Waveform)**:
-  - **Vector Microphone Indicator**: Cairo-rendered glowing teal status circle with breathing pulse animation while listening.
-  - **Status Typography**: Clear hierarchy with 18px bold status title (`Listening...`, `Transcribing...`, `Cleaning...`, `Error`) and 12px subtitle (`Speak naturally...`, `Converting speech to text`, `Formatting your text`). Status titles stay dedicated to state and are never overwritten by transcripts.
-  - **Dynamic Audio Waveform**: 42 slim rounded vertical bars with bell-curve tapering and glowing teal-to-cyan gradient, reacting dynamically to voice levels.
-  - **Elapsed Recording Timer**: Tabular monospace counter (`0:00`, `0:18`) tracking dictation duration.
-  - **Embedded Red Stop Button (`■`)**: Discreet $44\times44\text{ px}$ button styled in translucent red. Clicking it terminates all in-flight audio capture, STT transcription, and LLM cleaning.
-- **Row 2 (Live Transcript Strip)**:
-  - **Dedicated Inset Glass Strip**: Inset pill container (`rgba(10, 22, 31, 0.65)`) showing real-time streaming partial transcriptions.
-  - **Smooth Horizontal Marquee**: Short utterances display cleanly; long utterances automatically marquee-scroll smoothly with the latest spoken words and blinking teal caret (`|`) pinned to the right edge.
-  - **Left Edge Fade Mask**: Subtle gradient fade ensuring older words smoothly fade out as they scroll into the margin.
-  - **Chevron Badge**: Right circular badge with vector chevron (`›`) matching modern assistant aesthetics.
-- **Zero Focus Stealing**: Built as a native GTK3 popup with `accept_focus=False`, `focus_on_map=False`, and `set_focus_on_click=False` on the stop button, ensuring your keyboard focus never leaves your active window, IDE, or terminal.
-- **Dynamic Waveform States**:
-  - 🟢 **Listening**: 42 dynamic pill bars with bell-curve envelope reacting to voice amplitude with teal $\rightarrow$ sky blue gradient.
-  - 🔵 **Processing**: Animated traveling sine wave pulse in cyan $\rightarrow$ indigo during `Transcribing...` and `Cleaning...`.
-  - 🟠 **Error**: Shows actionable error messages in warm orange and automatically dismisses after 2.5 seconds.
+### Midway Cancellation (Stop Button `■`)
+- Clicking the square stop button (`■`) on the floating pill widget immediately aborts listening, transcribing, or cleaning without pasting any text.
 
 ### Voice Commands
-
-Start your dictation with your configured `COMMAND_PREFIX` (default: `"computer"`) to trigger instant actions:
-
-| Voice Command | Action |
-| --- | --- |
-| `computer cancel` | Discards the current recording (also accepts `"never mind"`, `"scratch that"`) |
-| `computer raw ...` | One-shot raw paste (bypasses LLM rewriting) |
-| `computer clean ...` | Standard AI cleanup |
-| `computer smart ...` | Automatically matches the style of the focused application |
-| `computer professional ...` | Strict business/formal tone |
-| `computer casual ...` | Friendly, informal messaging tone |
-| `computer email ...` | Structured email layout |
-| `computer code ...` | Preserves camelCase, snake_case, paths, and syntax literally |
-
-### Spoken Punctuation & Lists
-
-Normalizer runs deterministically on your device:
-
-- **Punctuation**: `"comma"`, `"period"`, `"question mark"`, `"exclamation mark"`, `"colon"`, `"semicolon"`, `"dash"`, `"open quote" / "close quote"`, `"new line"`, `"new paragraph"`.
-- **Lists**: Say `"bullet point"` or `"numbered list ... first ... second ..."` to generate formatted lists.
-
----
-
-## Running in the Background
-
-### Run Directly
-
-```bash
-source .venv/bin/activate
-python app.py
-```
-
-### Run Detached in Background
-
-```bash
-nohup .venv/bin/python app.py >/dev/null 2>&1 &
-```
-
-### Auto-start at Login (Linux Mint XFCE)
-
-1. Open **Settings → Session and Startup → Application Autostart**.
-2. Click **Add**.
-3. Set **Command** to:
-
-   ```bash
-   /full/path/to/AutoType-Linux/.venv/bin/python /full/path/to/AutoType-Linux/app.py
-   ```
-
----
-
-## Audio Hardware & Hardware Insights
-
-- **ALSA `default` Capture vs PipeWire**: On many Linux Mint installations, targeting ALSA's default device results in zero audio capture (digital silence). AutoType explicitly uses PipeWire ALSA routing when `MIC_DEVICE` is left empty, ensuring seamless dynamic switching between internal microphones and external headsets.
-- **Bluetooth Headset Profiles**: Bluetooth A2DP is a high-fidelity playback-only profile with no microphone channel. AutoType includes automatic profile switching to HSP/HFP (mSBC wideband with fallback to CVSD narrowband), ensuring headsets work smoothly.
-- **Fallback Reliability**: If your LLM provider endpoint is unreachable or times out, AutoType gracefully falls back to the normalized transcript rather than discarding your dictation.
-
----
-
-## Codebase Structure
-
-```text
-AutoType/
-├── app.py                 # Daemon lifecycle, double-tap hotkey listener, pipeline orchestrator
-├── config.py              # Central configuration loader (.env parser with fallback logic)
-├── settings_gui.py        # Native GTK3/libhandy graphical configuration app
-├── open-settings.sh       # Convenience launcher for Settings GUI
-│
-├── audio/                 # Microphone stream capture, level metering, Bluetooth routing
-├── stt/                   # Speech-to-Text backends
-│   ├── deepgram.py        # Cloud STT: Deepgram Nova-3 batch
-│   ├── flux.py            # Cloud STT: Deepgram Flux real-time streaming
-│   ├── cloud_whisper.py   # Cloud STT: OpenAI Whisper / Groq / NVIDIA NIM / Custom endpoints
-│   ├── parakeet.py        # Local STT: Offline batch (transcribe-cli 0.6B)
-│   ├── parakeet_stream.py # Local STT: Offline real-time streaming (parakeet-cli 120M)
-│   └── factory.py         # Dynamic STT transcriber dispatch
-│
-├── llm/                   # Provider-Agnostic LLM Cleaning
-│   ├── processor.py       # Multi-provider client (OpenAI, Anthropic, Grok, DeepSeek, Qwen, etc.)
-│   ├── prompts.py         # Style definitions (smart/clean/code/email/casual) and system prompts
-│   ├── normalizer.py      # Deterministic text normalizer (punctuation, lists, spacing)
-│   ├── vocabulary.py      # Personal vocabulary capitalization matcher
-│   └── omniroute.py       # Backwards-compatible alias for LLMProcessor
-│
-├── context/               # Window detection, voice commands, clipboard history
-├── desktop/               # X11 clipboard integration, key simulation, window title parsing
-├── ui/                    # Floating glassmorphic voice overlay widget, tray icon, profile storage
-└── data/                  # Local history logs, custom prompt, personal vocabulary
-```
+Start your dictation with your configured `COMMAND_PREFIX` (default: `"computer"`):
+- `computer raw ...`: Pastes raw transcript directly without LLM cleaning.
+- `computer clean ...`: Standard AI cleanup.
+- `computer smart ...`: Adapts tone and structure to the focused window (code, email, chat).
+- `computer cancel`: Aborts the recording.
 
 ---
 
 ## Privacy & Security
 
-- **Secrets Stay Local**: `.env` and `data/gui_settings.json` store your keys locally with restricted permissions (`chmod 600`) and are strictly ignored by git.
-- **100% Offline Mode**: Pairing Local STT (`parakeet_stream` or `parakeet`) with Local LLM Cleaning (`ollama`) guarantees zero audio or text data ever leaves your computer.
-- **Clipboard Restoration**: AutoType preserves and restores your previous clipboard contents after every dictation paste.
+- **Local Secrets**: Stored at `~/.config/autotype/config.toml` with `0600` permissions.
+- **100% Offline Mode**: Pairing Local STT (`parakeet_stream`) with Local LLM (`ollama`) keeps 100% of speech and text on-device.
+- **Clipboard Preservation**: Original clipboard text and images are automatically restored after every paste.
 
 ---
 

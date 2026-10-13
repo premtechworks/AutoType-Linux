@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""AutoType Settings — GNOME HIG-style preferences window (GTK3 + libhandy).
+"""AutoType Settings — GNOME HIG-style preferences window (GTK3).
 
-Structure: HdyPreferencesWindow with pages of grouped rounded cards
-(HdyPreferencesGroup). One setting per row — HdyActionRow with a short
+Structure: PreferencesWindow with pages of grouped rounded cards
+(PreferencesGroup). One setting per row — ActionRow with a short
 title, optional explanatory subtitle, and a right-aligned control.
-Rarely-used options live inside HdyExpanderRow sections so the main
+Rarely-used options live inside ExpanderRow sections so the main
 page stays uncluttered.
 
 Pages: General | Speech | Cleaning | Microphone | Advanced.
@@ -23,10 +23,7 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "3.0")
-gi.require_version("Handy", "1")
-from gi.repository import GLib, Gtk, Handy  # noqa: E402
-
-Handy.init()
+from gi.repository import GLib, Gtk  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
@@ -34,13 +31,20 @@ sys.path.insert(0, str(BASE_DIR))
 from llm.processor import LLMProcessor, PROVIDER_CONFIGS, normalize_provider  # noqa: E402
 from llm.prompts import SYSTEM_PROMPT  # noqa: E402
 from ui import settings_store as store  # noqa: E402
+from ui.gtk_preferences import (  # noqa: E402
+    ActionRow,
+    ExpanderRow,
+    PreferencesGroup,
+    PreferencesPage,
+    PreferencesWindow,
+)
 
 
 # -- row-building helpers ---------------------------------------------------
 
 def _switch_row(title, subtitle=None, active=False):
     """Action row with a right-aligned GtkSwitch; row click toggles."""
-    row = Handy.ActionRow()
+    row = ActionRow()
     row.set_title(title)
     if subtitle:
         row.set_subtitle(subtitle)
@@ -55,7 +59,7 @@ def _switch_row(title, subtitle=None, active=False):
 
 def _entry_row(title, text="", secret=False, placeholder="", tooltip=None):
     """Action row with a right-aligned text entry."""
-    row = Handy.ActionRow()
+    row = ActionRow()
     row.set_title(title)
     entry = Gtk.Entry()
     entry.set_valign(Gtk.Align.CENTER)
@@ -73,7 +77,7 @@ def _entry_row(title, text="", secret=False, placeholder="", tooltip=None):
 
 def _combo_row(title, items, active_index=0, subtitle=None, tooltip=None):
     """Action row with a right-aligned dropdown."""
-    row = Handy.ActionRow()
+    row = ActionRow()
     row.set_title(title)
     if subtitle:
         row.set_subtitle(subtitle)
@@ -91,7 +95,7 @@ def _combo_row(title, items, active_index=0, subtitle=None, tooltip=None):
 
 def _button_row(title, subtitle=None):
     """Action row that acts like a button (whole row clickable)."""
-    row = Handy.ActionRow()
+    row = ActionRow()
     row.set_title(title)
     if subtitle:
         row.set_subtitle(subtitle)
@@ -103,8 +107,8 @@ def _button_row(title, subtitle=None):
     return row
 
 
-class SettingsWindow(Handy.PreferencesWindow):
-    def __init__(self):
+class SettingsWindow(PreferencesWindow):
+    def __init__(self, initial_page: str | None = None):
         super().__init__()
         self.set_title("AutoType Settings")
         self.set_default_size(640, 576)
@@ -119,6 +123,9 @@ class SettingsWindow(Handy.PreferencesWindow):
         self._build_mic_page()
         self._build_advanced_page()
 
+        if initial_page:
+            self._stack.set_visible_child_name(initial_page)
+
     # -- helpers ---------------------------------------------------------
     def say(self, text):
         """Transient status message via desktop notification."""
@@ -129,14 +136,14 @@ class SettingsWindow(Handy.PreferencesWindow):
         threading.Thread(target=fn, daemon=True).start()
 
     def _page(self, title, icon):
-        page = Handy.PreferencesPage()
+        page = PreferencesPage()
         page.set_title(title)
         page.set_icon_name(icon)
         self.add(page)
         return page
 
     def _group(self, page, title, description=None):
-        group = Handy.PreferencesGroup()
+        group = PreferencesGroup()
         group.set_title(title)
         if description:
             group.set_description(description)
@@ -226,11 +233,11 @@ class SettingsWindow(Handy.PreferencesWindow):
 
     # -- Vocabulary --------------------------------------------------------
     def _build_vocab_section(self, group):
-        self.vocab_expander = Handy.ExpanderRow()
+        self.vocab_expander = ExpanderRow()
         self.vocab_expander.set_title("Edit Vocabulary")
         self.vocab_expander.set_subtitle(
             f"{len(store.load_vocabulary())} terms")
-        inner = Handy.ActionRow()
+        inner = ActionRow()
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         scrolled.set_min_content_height(160)
@@ -278,6 +285,11 @@ class SettingsWindow(Handy.PreferencesWindow):
             "Choose a Cloud STT provider or run 100% offline locally.")
         self._build_stt_section(group)
 
+        models_group = self._group(
+            page, "Local models",
+            "Download and manage local speech recognition models and binaries.")
+        self._build_local_models_section(models_group)
+
     def _build_stt_section(self, group):
         names = list(self.profiles["stt_profiles"])
         active_name = self.profiles.get("active_stt", names[0])
@@ -304,7 +316,7 @@ class SettingsWindow(Handy.PreferencesWindow):
         group.add(self.stt_category_row)
 
         # -- Cloud STT Section --
-        self.cloud_stt_expander = Handy.ExpanderRow()
+        self.cloud_stt_expander = ExpanderRow()
         self.cloud_stt_expander.set_title("Cloud Speech-to-Text Providers")
         self.cloud_stt_expander.set_subtitle("Deepgram, OpenAI Whisper, Groq, NVIDIA NIM, or Custom")
 
@@ -322,7 +334,7 @@ class SettingsWindow(Handy.PreferencesWindow):
         self.cloud_stt_expander.add(self.cloud_provider_row)
 
         # Deepgram fields
-        self.dg_sub_expander = Handy.ExpanderRow()
+        self.dg_sub_expander = ExpanderRow()
         self.dg_sub_expander.set_title("Deepgram Settings")
         self.dg_sub_expander.set_subtitle("Flux streaming & Nova-3 batch")
         self.f_dg_key = _entry_row("Deepgram API Key", cur.get("DEEPGRAM_API_KEY"), secret=True)
@@ -334,7 +346,7 @@ class SettingsWindow(Handy.PreferencesWindow):
         self.cloud_stt_expander.add(self.dg_sub_expander)
 
         # Generic Cloud STT fields (Whisper, Groq, NVIDIA, Custom)
-        self.cloud_generic_expander = Handy.ExpanderRow()
+        self.cloud_generic_expander = ExpanderRow()
         self.cloud_generic_expander.set_title("OpenAI / Whisper / NVIDIA Cloud Settings")
         self.cloud_generic_expander.set_subtitle("OpenAI-compatible audio/transcriptions endpoint")
         self.f_cloud_key = _entry_row("API Key", cur.get("CLOUD_STT_API_KEY"), secret=True)
@@ -348,7 +360,7 @@ class SettingsWindow(Handy.PreferencesWindow):
         group.add(self.cloud_stt_expander)
 
         # -- Local STT Section --
-        self.local_stt_expander = Handy.ExpanderRow()
+        self.local_stt_expander = ExpanderRow()
         self.local_stt_expander.set_title("Local Speech-to-Text (Offline)")
         self.local_stt_expander.set_subtitle("On-device transcription via Parakeet")
 
@@ -422,6 +434,199 @@ class SettingsWindow(Handy.PreferencesWindow):
 
     def _on_local_engine_changed(self, _combo):
         pass
+
+    # -- Local Models Section ----------------------------------------------
+    def _build_local_models_section(self, group):
+        from autotype.manifest import format_size, is_item_installed, load_manifest
+
+        self.model_rows = {}
+        for item in load_manifest():
+            row = ActionRow()
+            row.set_title(item.display_name)
+            sub = f"{item.description} • {format_size(item.size_bytes)}"
+            if not item.installable:
+                sub += f" ({item.unverified_reason or 'unverified'})"
+            row.set_subtitle(sub)
+
+            action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            action_box.set_valign(Gtk.Align.CENTER)
+
+            status_label = Gtk.Label(label="")
+            status_label.set_valign(Gtk.Align.CENTER)
+            status_label.get_style_context().add_class("dim-label")
+            action_box.pack_start(status_label, False, False, 0)
+
+            pbar = Gtk.ProgressBar()
+            pbar.set_valign(Gtk.Align.CENTER)
+            pbar.set_size_request(80, -1)
+            pbar.set_no_show_all(True)
+            action_box.pack_start(pbar, False, False, 0)
+
+            select_btn = Gtk.Button(label="Use")
+            select_btn.set_valign(Gtk.Align.CENTER)
+            select_btn.set_no_show_all(True)
+            action_box.pack_start(select_btn, False, False, 0)
+
+            install_btn = Gtk.Button(label="Install")
+            install_btn.set_valign(Gtk.Align.CENTER)
+            install_btn.set_no_show_all(True)
+            action_box.pack_start(install_btn, False, False, 0)
+
+            remove_btn = Gtk.Button(label="Remove")
+            remove_btn.set_valign(Gtk.Align.CENTER)
+            remove_btn.set_no_show_all(True)
+            action_box.pack_start(remove_btn, False, False, 0)
+
+            row.add(action_box)
+
+            row_data = {
+                "item": item,
+                "row": row,
+                "status_label": status_label,
+                "progress_bar": pbar,
+                "select_btn": select_btn,
+                "install_btn": install_btn,
+                "remove_btn": remove_btn,
+                "state": "installed" if is_item_installed(item) else ("unverified" if not item.installable else "not_installed"),
+            }
+            self.model_rows[item.id] = row_data
+
+            install_btn.connect("clicked", self._on_install_model_clicked, row_data)
+            remove_btn.connect("clicked", self._on_remove_model_clicked, row_data)
+            select_btn.connect("clicked", self._on_select_model_clicked, row_data)
+
+            self._update_model_row_state(row_data)
+            group.add(row)
+
+    def _update_model_row_state(self, row_data):
+        from autotype.manifest import is_item_installed
+
+        item = row_data["item"]
+        installed = is_item_installed(item)
+        state = row_data.get("state", "installed" if installed else ("unverified" if not item.installable else "not_installed"))
+
+        if state == "downloading":
+            row_data["status_label"].set_text("Downloading…")
+            row_data["progress_bar"].show()
+            row_data["install_btn"].set_sensitive(False)
+            row_data["install_btn"].hide()
+            row_data["remove_btn"].hide()
+            row_data["select_btn"].hide()
+        elif state == "installed" or (installed and state != "failed"):
+            row_data["status_label"].set_text("Installed")
+            row_data["progress_bar"].hide()
+            row_data["install_btn"].hide()
+            row_data["remove_btn"].show()
+            row_data["remove_btn"].set_sensitive(True)
+            if item.type in ("stt-stream", "stt-batch"):
+                row_data["select_btn"].show()
+                row_data["select_btn"].set_sensitive(True)
+            else:
+                row_data["select_btn"].hide()
+        elif state == "failed":
+            row_data["status_label"].set_text("Failed")
+            row_data["progress_bar"].hide()
+            row_data["install_btn"].show()
+            row_data["install_btn"].set_sensitive(True)
+            row_data["remove_btn"].hide()
+            row_data["select_btn"].hide()
+        elif not item.installable:
+            row_data["status_label"].set_text("Unverified")
+            row_data["progress_bar"].hide()
+            row_data["install_btn"].show()
+            row_data["install_btn"].set_sensitive(False)
+            row_data["install_btn"].set_tooltip_text(item.unverified_reason or "Unverified")
+            row_data["remove_btn"].hide()
+            row_data["select_btn"].hide()
+        else:  # not installed
+            row_data["status_label"].set_text("Not installed")
+            row_data["progress_bar"].hide()
+            row_data["install_btn"].show()
+            row_data["install_btn"].set_sensitive(True)
+            row_data["remove_btn"].hide()
+            row_data["select_btn"].hide()
+
+    def _on_select_model_clicked(self, _btn, row_data):
+        self._select_local_model(row_data["item"])
+
+    def _select_local_model(self, item):
+        from autotype.manifest import get_item, is_item_installed
+        from autotype.paths import get_bin_dir
+
+        # 1. Switch category to Local STT
+        self.stt_category_row.combo.set_active(1)
+
+        # 2. Update engine and model paths automatically without manual file picking
+        if item.type == "stt-stream" or item.id == "parakeet-eou-120m":
+            self.local_backend_row.combo.set_active(0)
+            self.f_pks_model.entry.set_text(str(item.target_path))
+            cli_item = get_item("parakeet-cli")
+            if cli_item and is_item_installed(cli_item):
+                self.f_pks_bin.entry.set_text(str(cli_item.target_path))
+            else:
+                self.f_pks_bin.entry.set_text(str(get_bin_dir() / "parakeet-cli"))
+        elif item.type == "stt-batch" or item.id == "parakeet-tdt-0.6b":
+            self.local_backend_row.combo.set_active(1)
+            self.f_pk_model.entry.set_text(str(item.target_path))
+            cli_item = get_item("transcribe-cli")
+            if cli_item and is_item_installed(cli_item):
+                self.f_pk_bin.entry.set_text(str(cli_item.target_path))
+            else:
+                self.f_pk_bin.entry.set_text(str(get_bin_dir() / "transcribe-cli"))
+
+        self._update_stt_visibility()
+        self._on_stt_save()
+        self.say(f"Switched to {item.display_name}")
+
+    def _on_install_model_clicked(self, _btn, row_data):
+        from autotype.downloader import download_item
+
+        item = row_data["item"]
+        row_data["state"] = "downloading"
+        row_data["progress_bar"].set_fraction(0.0)
+        self._update_model_row_state(row_data)
+
+        def _work():
+            def on_progress(dl, total):
+                frac = (dl / total) if total > 0 else 0.0
+                GLib.idle_add(self._on_download_model_progress, row_data, frac)
+
+            try:
+                download_item(item, progress_callback=on_progress)
+                GLib.idle_add(self._on_download_model_finished, row_data, True, None)
+            except Exception as exc:
+                GLib.idle_add(self._on_download_model_finished, row_data, False, str(exc))
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _on_download_model_progress(self, row_data, frac):
+        row_data["progress_bar"].set_fraction(frac)
+        pct = frac * 100.0
+        row_data["status_label"].set_text(f"{pct:.0f}%")
+        return False
+
+    def _on_download_model_finished(self, row_data, success, error_msg):
+        item = row_data["item"]
+        if success:
+            row_data["state"] = "installed"
+            self._update_model_row_state(row_data)
+            self.say(f"Installed {item.display_name}")
+            if item.type in ("stt-stream", "stt-batch"):
+                self._select_local_model(item)
+        else:
+            row_data["state"] = "failed"
+            self._update_model_row_state(row_data)
+            self.say(f"Download failed: {error_msg}")
+        return False
+
+    def _on_remove_model_clicked(self, _btn, row_data):
+        from autotype.downloader import remove_item
+
+        item = row_data["item"]
+        remove_item(item)
+        row_data["state"] = "not_installed"
+        self._update_model_row_state(row_data)
+        self.say(f"Removed {item.display_name}")
 
     def _stt_fields(self):
         cat = self._combo_value(self.stt_category_row.combo)
@@ -844,10 +1049,10 @@ class SettingsWindow(Handy.PreferencesWindow):
             "notify::active", self._on_custom_prompt_toggled)
         group.add(self.use_custom_row)
 
-        self.prompt_expander = Handy.ExpanderRow()
+        self.prompt_expander = ExpanderRow()
         self.prompt_expander.set_title("Edit Prompt")
         self.prompt_expander.set_subtitle("Used for Clean and Smart modes")
-        inner = Handy.ActionRow()
+        inner = ActionRow()
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         scrolled.set_min_content_height(180)
@@ -912,7 +1117,7 @@ class SettingsWindow(Handy.PreferencesWindow):
         self.refresh_mic_lists()
 
     def _build_bt_section(self, group):
-        self.bt_status_row = Handy.ActionRow()
+        self.bt_status_row = ActionRow()
         self.bt_status_row.set_title("Status")
         self.bt_status_row.set_selectable(False)
         status_label = Gtk.Label(label="Checking…")
@@ -1068,9 +1273,9 @@ class SettingsWindow(Handy.PreferencesWindow):
 
         group = self._group(page, "Daemon Log",
                             "Diagnostics from the background process.")
-        self.log_expander = Handy.ExpanderRow()
+        self.log_expander = ExpanderRow()
         self.log_expander.set_title("View Recent Log")
-        inner = Handy.ActionRow()
+        inner = ActionRow()
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         scrolled.set_min_content_height(200)
@@ -1089,7 +1294,7 @@ class SettingsWindow(Handy.PreferencesWindow):
         group.add(refresh_row)
 
         group = self._group(page, "Shortcuts & Voice Commands")
-        info_row = Handy.ActionRow()
+        info_row = ActionRow()
         info_row.set_title("How to Use")
         info_row.set_subtitle(
             "Hotkey: double-tap Right Alt to start/stop.\n"
@@ -1104,16 +1309,17 @@ class SettingsWindow(Handy.PreferencesWindow):
 
     # -- daemon management --------------------------------------------------
     def _daemon_pid(self):
-        """PID from data/daemon.pid if that process is still our daemon."""
+        """PID from daemon.pid if that process is still our daemon."""
         try:
-            pid = int((BASE_DIR / "data" / "daemon.pid").read_text().strip())
+            from autotype.paths import get_data_dir
+            pid = int((get_data_dir() / "daemon.pid").read_text().strip())
         except Exception:
             return None
         try:
             with open(f"/proc/{pid}/cmdline", "rb") as fh:
                 cmd = fh.read().decode(errors="replace")
             cwd = str(Path(f"/proc/{pid}/cwd").resolve())
-            if "app.py" in cmd and cwd == str(BASE_DIR):
+            if ("app.py" in cmd or "autotype" in cmd):
                 return pid
         except Exception:
             pass
@@ -1199,8 +1405,13 @@ class SettingsWindow(Handy.PreferencesWindow):
             combo.set_active(0)
 
 
-def main():
-    win = SettingsWindow()
+def main(initial_page: str | None = None):
+    if not initial_page and len(sys.argv) > 1:
+        for arg in sys.argv[1:]:
+            if arg in ("--speech", "-s") or arg.startswith("--page=speech"):
+                initial_page = "speech"
+                break
+    win = SettingsWindow(initial_page=initial_page)
     win.connect("destroy", Gtk.main_quit)
     win.show_all()
     Gtk.main()

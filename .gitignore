@@ -12,8 +12,22 @@ data/*
 # Contains plaintext API keys saved by the settings GUI — never commit.
 data/gui_settings.json
 models/*
+!models/manifest.json
 logs/
 daemon.log
 
-.idea/
-.vscode/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+config.toml
+*.gguf
+*.bin
+AppDir/
+*.AppImage
+appimage-builder-cache/
+.flatpak-builder/
+repo/
+builddir/
+

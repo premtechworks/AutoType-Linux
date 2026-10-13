@@ -1,10 +1,7 @@
 """Persistence layer for the Settings GUI.
 
-Two stores:
-  .env                    — source of truth the daemon (config.py) reads.
-  data/gui_settings.json  — named STT + cleaning profiles to save/switch.
-  data/custom_prompt.txt  — user-edited cleaning prompt.
-  data/vocabulary.json    — personal vocabulary terms.
+Uses config.toml located at $XDG_CONFIG_HOME/autotype/config.toml (or ~/.config/autotype/config.toml)
+as the primary source of truth, while preserving environment variable overrides and .env updates.
 """
 from __future__ import annotations
 
@@ -12,12 +9,15 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import Any
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+from autotype.config import load_config, save_config
+from autotype.paths import find_repo_root, get_config_path, get_data_dir
+
+BASE_DIR = find_repo_root() or Path(__file__).resolve().parent.parent
 ENV_PATH = BASE_DIR / ".env"
-PROFILES_PATH = BASE_DIR / "data" / "gui_settings.json"
-CUSTOM_PROMPT_PATH = BASE_DIR / "data" / "custom_prompt.txt"
-VOCAB_PATH = BASE_DIR / "data" / "vocabulary.json"
+CUSTOM_PROMPT_PATH = get_data_dir() / "custom_prompt.txt"
+VOCAB_PATH = get_data_dir() / "vocabulary.json"
 
 STT_FIELDS = (
     "STT_BACKEND",
@@ -66,10 +66,10 @@ DEFAULTS = {
     "DEEPGRAM_MODEL": "nova-3",
     "DEEPGRAM_LANGUAGE": "en-US",
     "DEEPGRAM_FLUX_MODEL": "flux-general-en",
-    "PARAKEET_BINARY": "/home/prem/projects/transcribe.cpp/build/bin/transcribe-cli",
-    "PARAKEET_MODEL": "/home/prem/projects/AutoType/models/parakeet-tdt-0.6b-v2-Q4_K_M.gguf",
-    "PARAKEET_STREAM_BINARY": "/home/prem/projects/parakeet.cpp/parakeet-cli",
-    "PARAKEET_STREAM_MODEL": "/home/prem/projects/AutoType/models/parakeet-eou-120m-q8_0.gguf",
+    "PARAKEET_BINARY": "",
+    "PARAKEET_MODEL": "",
+    "PARAKEET_STREAM_BINARY": "",
+    "PARAKEET_STREAM_MODEL": "",
     "PROCESSING_MODE": "clean",
     "SAVE_RECORDINGS": "false",
     "COMMAND_PREFIX": "computer",
@@ -84,20 +84,84 @@ DEFAULTS = {
 }
 
 
-# -- .env ---------------------------------------------------------------
+# -- config.toml & env loading -----------------------------------------------
 
 def load_env() -> dict[str, str]:
-    """Parse .env directly into a clean dict, prioritizing existing user settings."""
+    """Parse configuration into a dict for the settings GUI."""
+    cfg = load_config()
     raw: dict[str, str] = {}
-    if ENV_PATH.exists():
-        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, val = line.partition("=")
-            key = key.strip()
-            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-                raw[key] = val.strip().strip("'\"")
+
+    # Extract from config.toml
+    gen = cfg.get("general", {})
+    if isinstance(gen, dict):
+        if "processing_mode" in gen:
+            raw["PROCESSING_MODE"] = str(gen["processing_mode"])
+        if "command_prefix" in gen:
+            raw["COMMAND_PREFIX"] = str(gen["command_prefix"])
+        if "save_recordings" in gen:
+            raw["SAVE_RECORDINGS"] = str(gen["save_recordings"]).lower()
+        if "use_custom_prompt" in gen:
+            raw["USE_CUSTOM_PROMPT"] = str(gen["use_custom_prompt"]).lower()
+        if "custom_prompt_file" in gen:
+            raw["CUSTOM_PROMPT_FILE"] = str(gen["custom_prompt_file"])
+        if "mic_device" in gen:
+            raw["MIC_DEVICE"] = str(gen["mic_device"])
+
+    llm = cfg.get("llm", {})
+    if isinstance(llm, dict):
+        if "provider" in llm:
+            raw["LLM_PROVIDER"] = str(llm["provider"])
+        if "base_url" in llm:
+            raw["LLM_BASE_URL"] = str(llm["base_url"])
+        if "api_key" in llm:
+            raw["LLM_API_KEY"] = str(llm["api_key"])
+        if "model" in llm:
+            raw["LLM_MODEL"] = str(llm["model"])
+        if "temperature" in llm:
+            raw["CLEANING_TEMPERATURE"] = str(llm["temperature"])
+        if "omniroute_base_url" in llm:
+            raw["OMNIROUTE_BASE_URL"] = str(llm["omniroute_base_url"])
+        if "omniroute_api_key" in llm:
+            raw["OMNIROUTE_API_KEY"] = str(llm["omniroute_api_key"])
+        if "omniroute_model" in llm:
+            raw["OMNIROUTE_MODEL"] = str(llm["omniroute_model"])
+
+    stt = cfg.get("stt", {})
+    if isinstance(stt, dict):
+        if "backend" in stt:
+            raw["STT_BACKEND"] = str(stt["backend"])
+        if "deepgram_api_key" in stt:
+            raw["DEEPGRAM_API_KEY"] = str(stt["deepgram_api_key"])
+        if "deepgram_model" in stt:
+            raw["DEEPGRAM_MODEL"] = str(stt["deepgram_model"])
+        if "deepgram_language" in stt:
+            raw["DEEPGRAM_LANGUAGE"] = str(stt["deepgram_language"])
+        if "deepgram_flux_model" in stt:
+            raw["DEEPGRAM_FLUX_MODEL"] = str(stt["deepgram_flux_model"])
+        if "cloud_provider" in stt:
+            raw["CLOUD_STT_PROVIDER"] = str(stt["cloud_provider"])
+        if "cloud_api_key" in stt:
+            raw["CLOUD_STT_API_KEY"] = str(stt["cloud_api_key"])
+        if "cloud_base_url" in stt:
+            raw["CLOUD_STT_BASE_URL"] = str(stt["cloud_base_url"])
+        if "cloud_model" in stt:
+            raw["CLOUD_STT_MODEL"] = str(stt["cloud_model"])
+        if "cloud_language" in stt:
+            raw["CLOUD_STT_LANGUAGE"] = str(stt["cloud_language"])
+        if "parakeet_binary" in stt:
+            raw["PARAKEET_BINARY"] = str(stt["parakeet_binary"])
+        if "parakeet_model" in stt:
+            raw["PARAKEET_MODEL"] = str(stt["parakeet_model"])
+        if "parakeet_stream_binary" in stt:
+            raw["PARAKEET_STREAM_BINARY"] = str(stt["parakeet_stream_binary"])
+        if "parakeet_stream_model" in stt:
+            raw["PARAKEET_STREAM_MODEL"] = str(stt["parakeet_stream_model"])
+
+    # Also overlay current environment variables if set
+    for field in list(STT_FIELDS) + list(CLEAN_FIELDS) + list(GLOBAL_FIELDS):
+        val = os.getenv(field)
+        if val is not None and val.strip() != "":
+            raw[field] = val.strip()
 
     # 1. Backwards compatibility for LLM Cleaning Provider:
     has_omniroute = bool(raw.get("OMNIROUTE_BASE_URL") or raw.get("OMNIROUTE_API_KEY") or raw.get("OMNIROUTE_MODEL"))
@@ -149,7 +213,7 @@ def load_env() -> dict[str, str]:
 
 
 def save_env(updates: dict[str, str]) -> None:
-    """Merge updates into .env, preserving comments and unknown lines."""
+    """Save updates to config.toml and keep .env in sync if it exists."""
     # If LLM_* keys are present, sync OMNIROUTE_* for backwards compatibility
     if "LLM_BASE_URL" in updates and "OMNIROUTE_BASE_URL" not in updates:
         updates["OMNIROUTE_BASE_URL"] = updates["LLM_BASE_URL"]
@@ -158,28 +222,100 @@ def save_env(updates: dict[str, str]) -> None:
     if "LLM_MODEL" in updates and "OMNIROUTE_MODEL" not in updates:
         updates["OMNIROUTE_MODEL"] = updates["LLM_MODEL"]
 
-    lines: list[str] = []
-    seen: set[str] = set()
+    cfg = load_config()
+    gen = cfg.setdefault("general", {})
+    llm = cfg.setdefault("llm", {})
+    stt = cfg.setdefault("stt", {})
+
+    # General
+    if "PROCESSING_MODE" in updates:
+        gen["processing_mode"] = updates["PROCESSING_MODE"]
+    if "COMMAND_PREFIX" in updates:
+        gen["command_prefix"] = updates["COMMAND_PREFIX"]
+    if "SAVE_RECORDINGS" in updates:
+        gen["save_recordings"] = updates["SAVE_RECORDINGS"].lower() in ("1", "true", "yes")
+    if "USE_CUSTOM_PROMPT" in updates:
+        gen["use_custom_prompt"] = updates["USE_CUSTOM_PROMPT"].lower() in ("1", "true", "yes")
+    if "CUSTOM_PROMPT_FILE" in updates:
+        gen["custom_prompt_file"] = updates["CUSTOM_PROMPT_FILE"]
+    if "MIC_DEVICE" in updates:
+        gen["mic_device"] = updates["MIC_DEVICE"]
+
+    # LLM
+    if "LLM_PROVIDER" in updates:
+        llm["provider"] = updates["LLM_PROVIDER"]
+    if "LLM_BASE_URL" in updates:
+        llm["base_url"] = updates["LLM_BASE_URL"]
+    if "LLM_API_KEY" in updates:
+        llm["api_key"] = updates["LLM_API_KEY"]
+    if "LLM_MODEL" in updates:
+        llm["model"] = updates["LLM_MODEL"]
+    if "CLEANING_TEMPERATURE" in updates:
+        try:
+            llm["temperature"] = float(updates["CLEANING_TEMPERATURE"])
+        except ValueError:
+            llm["temperature"] = 0.1
+    if "OMNIROUTE_BASE_URL" in updates:
+        llm["omniroute_base_url"] = updates["OMNIROUTE_BASE_URL"]
+    if "OMNIROUTE_API_KEY" in updates:
+        llm["omniroute_api_key"] = updates["OMNIROUTE_API_KEY"]
+    if "OMNIROUTE_MODEL" in updates:
+        llm["omniroute_model"] = updates["OMNIROUTE_MODEL"]
+
+    # STT
+    if "STT_BACKEND" in updates:
+        stt["backend"] = updates["STT_BACKEND"]
+    if "DEEPGRAM_API_KEY" in updates:
+        stt["deepgram_api_key"] = updates["DEEPGRAM_API_KEY"]
+    if "DEEPGRAM_MODEL" in updates:
+        stt["deepgram_model"] = updates["DEEPGRAM_MODEL"]
+    if "DEEPGRAM_LANGUAGE" in updates:
+        stt["deepgram_language"] = updates["DEEPGRAM_LANGUAGE"]
+    if "DEEPGRAM_FLUX_MODEL" in updates:
+        stt["deepgram_flux_model"] = updates["DEEPGRAM_FLUX_MODEL"]
+    if "CLOUD_STT_PROVIDER" in updates:
+        stt["cloud_provider"] = updates["CLOUD_STT_PROVIDER"]
+    if "CLOUD_STT_API_KEY" in updates:
+        stt["cloud_api_key"] = updates["CLOUD_STT_API_KEY"]
+    if "CLOUD_STT_BASE_URL" in updates:
+        stt["cloud_base_url"] = updates["CLOUD_STT_BASE_URL"]
+    if "CLOUD_STT_MODEL" in updates:
+        stt["cloud_model"] = updates["CLOUD_STT_MODEL"]
+    if "CLOUD_STT_LANGUAGE" in updates:
+        stt["cloud_language"] = updates["CLOUD_STT_LANGUAGE"]
+    if "PARAKEET_BINARY" in updates:
+        stt["parakeet_binary"] = updates["PARAKEET_BINARY"]
+    if "PARAKEET_MODEL" in updates:
+        stt["parakeet_model"] = updates["PARAKEET_MODEL"]
+    if "PARAKEET_STREAM_BINARY" in updates:
+        stt["parakeet_stream_binary"] = updates["PARAKEET_STREAM_BINARY"]
+    if "PARAKEET_STREAM_MODEL" in updates:
+        stt["parakeet_stream_model"] = updates["PARAKEET_STREAM_MODEL"]
+
+    save_config(cfg)
+
+    # If .env exists, keep it updated as well
     if ENV_PATH.exists():
-        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
-    out: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#") and "=" in stripped:
-            key = stripped.partition("=")[0].strip()
-            if key in updates:
-                out.append(f"{key}={updates[key]}")
-                seen.add(key)
-                continue
-        out.append(line)
-    for key, val in updates.items():
-        if key not in seen:
-            out.append(f"{key}={val}")
-    ENV_PATH.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
-    try:
-        os.chmod(ENV_PATH, 0o600)
-    except Exception:
-        pass
+        lines: list[str] = ENV_PATH.read_text(encoding="utf-8").splitlines()
+        seen: set[str] = set()
+        out: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                key = stripped.partition("=")[0].strip()
+                if key in updates:
+                    out.append(f"{key}={updates[key]}")
+                    seen.add(key)
+                    continue
+            out.append(line)
+        for key, val in updates.items():
+            if key not in seen:
+                out.append(f"{key}={val}")
+        ENV_PATH.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
+        try:
+            os.chmod(ENV_PATH, 0o600)
+        except Exception:
+            pass
 
 
 # -- named profiles ------------------------------------------------------
@@ -188,7 +324,6 @@ def _seed_profiles(env: dict[str, str]) -> dict:
     stt_base = {k: env.get(k, DEFAULTS.get(k, "")) for k in STT_FIELDS}
     clean_base = {k: env.get(k, DEFAULTS.get(k, "")) for k in CLEAN_FIELDS}
 
-    # Cloud and Local STT profiles
     stt_profiles = {
         "Deepgram (Cloud Streaming)": dict(
             stt_base,
@@ -232,7 +367,6 @@ def _seed_profiles(env: dict[str, str]) -> dict:
         ),
     }
 
-    # Cleaning LLM profiles
     clean_profiles = {
         "Custom API Provider": dict(
             clean_base,
@@ -298,7 +432,6 @@ def _seed_profiles(env: dict[str, str]) -> dict:
         ),
     }
 
-    # Determine active profiles from .env
     is_custom = env.get("LLM_PROVIDER") == "custom" or bool(env.get("OMNIROUTE_BASE_URL"))
     active_clean = "Custom API Provider" if is_custom else "OpenAI (ChatGPT)"
 
@@ -325,88 +458,53 @@ def _seed_profiles(env: dict[str, str]) -> dict:
 
 
 def load_profiles() -> dict:
-    """Load gui_settings.json, always ensuring active profiles match the current .env state."""
+    """Load profiles from config.toml (or fallback to legacy gui_settings.json)."""
     env = load_env()
     seeded = _seed_profiles(env)
 
-    try:
-        if PROFILES_PATH.exists():
-            data = json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                stt_profs = data.setdefault("stt_profiles", {})
-                clean_profs = data.setdefault("clean_profiles", {})
+    cfg = load_config()
+    profs_section = cfg.get("profiles")
 
-                # Merge any missing standard presets from seed
-                for name, p_data in seeded["clean_profiles"].items():
-                    if name not in clean_profs:
-                        clean_profs[name] = dict(p_data)
-                for name, p_data in seeded["stt_profiles"].items():
-                    if name not in stt_profs:
-                        stt_profs[name] = dict(p_data)
+    if isinstance(profs_section, dict) and "stt_profiles" in profs_section:
+        data = profs_section
+    elif isinstance(profs_section, dict) and "stt" in profs_section:
+        # TOML format with profiles.stt and profiles.clean
+        data = {
+            "stt_profiles": profs_section.get("stt", {}),
+            "clean_profiles": profs_section.get("clean", {}),
+            "active_stt": profs_section.get("active_stt", seeded["active_stt"]),
+            "active_clean": profs_section.get("active_clean", seeded["active_clean"]),
+        }
+    else:
+        # Fallback to legacy gui_settings.json if present
+        legacy_path = get_data_dir() / "gui_settings.json"
+        if legacy_path.exists():
+            try:
+                data = json.loads(legacy_path.read_text(encoding="utf-8"))
+            except Exception:
+                data = seeded
+        else:
+            data = seeded
 
-                # Migrate and backfill clean_profiles
-                for name, prof in clean_profs.items():
-                    if prof.get("OMNIROUTE_BASE_URL") and not prof.get("LLM_BASE_URL"):
-                        prof["LLM_BASE_URL"] = prof["OMNIROUTE_BASE_URL"]
-                    if prof.get("OMNIROUTE_API_KEY") and not prof.get("LLM_API_KEY"):
-                        prof["LLM_API_KEY"] = prof["OMNIROUTE_API_KEY"]
-                    if prof.get("OMNIROUTE_MODEL") and not prof.get("LLM_MODEL"):
-                        prof["LLM_MODEL"] = prof["OMNIROUTE_MODEL"]
+    stt_profs = data.setdefault("stt_profiles", {})
+    clean_profs = data.setdefault("clean_profiles", {})
 
-                    if not prof.get("LLM_PROVIDER"):
-                        if name == "Custom API Provider" or prof.get("OMNIROUTE_BASE_URL"):
-                            prof["LLM_PROVIDER"] = "custom"
-                        else:
-                            prof["LLM_PROVIDER"] = "openai"
+    for name, p_data in seeded["clean_profiles"].items():
+        if name not in clean_profs:
+            clean_profs[name] = dict(p_data)
+    for name, p_data in seeded["stt_profiles"].items():
+        if name not in stt_profs:
+            stt_profs[name] = dict(p_data)
 
-                    for k in CLEAN_FIELDS:
-                        prof.setdefault(k, DEFAULTS.get(k, ""))
-
-                # Backfill stt_profiles
-                for prof in stt_profs.values():
-                    for k in STT_FIELDS:
-                        prof.setdefault(k, DEFAULTS.get(k, ""))
-
-                # Ensure active_clean correctly reflects .env
-                active_clean = data.get("active_clean")
-                if not active_clean or active_clean not in clean_profs or active_clean == "Default":
-                    active_clean = seeded["active_clean"]
-                    data["active_clean"] = active_clean
-
-                # Synchronize the active profile with current .env values
-                if active_clean in clean_profs:
-                    for k in CLEAN_FIELDS:
-                        if k in env and env[k]:
-                            clean_profs[active_clean][k] = env[k]
-
-                # If .env is custom, also synchronize Custom API Provider
-                if env.get("LLM_PROVIDER") == "custom" and "Custom API Provider" in clean_profs:
-                    for k in CLEAN_FIELDS:
-                        if k in env and env[k]:
-                            clean_profs["Custom API Provider"][k] = env[k]
-
-                # Synchronize active_stt with current .env values
-                active_stt = data.get("active_stt")
-                if not active_stt or active_stt not in stt_profs:
-                    active_stt = seeded["active_stt"]
-                    data["active_stt"] = active_stt
-
-                if active_stt in stt_profs:
-                    for k in STT_FIELDS:
-                        if k in env and env[k]:
-                            stt_profs[active_stt][k] = env[k]
-
-                return data
-    except Exception:
-        pass
-
-    save_profiles(seeded)
-    return seeded
+    save_profiles(data)
+    return data
 
 
 def save_profiles(data: dict) -> None:
-    PROFILES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PROFILES_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    """Save profiles to config.toml."""
+    cfg = load_config()
+    cfg["profiles"] = data
+    save_config(cfg)
 
 
 def reset_clean_defaults() -> dict[str, str]:
@@ -480,5 +578,4 @@ def load_vocabulary() -> list[str]:
 
 def save_vocabulary(terms: list[str]) -> None:
     VOCAB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    VOCAB_PATH.write_text(json.dumps({"terms": terms}, indent=2),
-                           encoding="utf-8")
+    VOCAB_PATH.write_text(json.dumps({"terms": terms}, indent=2), encoding="utf-8")

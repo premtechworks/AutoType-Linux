@@ -19,6 +19,8 @@ from pynput import keyboard
 import config
 from audio.recorder import Recorder
 from audio.streamer import MicrophoneStream
+from autotype.errors import format_actionable_error
+from autotype.paths import get_data_dir
 from context.commands import detect_command
 from context.history import History
 from desktop.clipboard import get_selected_text, insert_text
@@ -67,7 +69,7 @@ class AutoType:
         self.use_streaming = config.stt_backend() in ("deepgram", "parakeet_stream")
         self.processing_mode = config.processing_mode()  # raw | clean | smart
         self.backend = config.stt_backend()
-        self.history = History(BASE_DIR / "data" / "history.jsonl")
+        self.history = History(get_data_dir() / "history.jsonl")
         self.tray = None
         self.lock = threading.Lock()
         self._session_id = 0
@@ -165,10 +167,10 @@ class AutoType:
         if self.tray:
             self.tray.flash_ready()
 
-    def _ui_error(self, message: str):
+    def _ui_error(self, message: str, title: str = "Error"):
         log.warning(message)
         if self.overlay:
-            self.overlay.show_error(message)
+            self.overlay.show_error(message, title=title)
         if self.tray:
             self.tray.set_state("error")
         if not self.overlay and not self.tray:
@@ -183,6 +185,15 @@ class AutoType:
             session_id = self._session_id
             self.is_recording = True
         try:
+            from audio.devices import list_input_devices
+
+            if not list_input_devices():
+                self._ui_error(format_actionable_error("No microphone detected", context="mic"))
+                with self.lock:
+                    if self._session_id == session_id:
+                        self.is_recording = False
+                return
+
             self.recorder.start()
             self._t_start = time.monotonic()
             log.info("Recording... (double-tap Right Alt to stop)")
@@ -191,7 +202,7 @@ class AutoType:
             with self.lock:
                 if self._session_id == session_id:
                     self.is_recording = False
-            self._ui_error(f"Recording error: {exc}")
+            self._ui_error(format_actionable_error(exc, context="mic"))
 
     def _capture_audio(self) -> Path:
         """Save the utterance to WAV. Persistent only if SAVE_RECORDINGS=true."""
@@ -252,7 +263,7 @@ class AutoType:
             self.process_and_insert(transcript, record_dur, stt_dur, session_id=session_id)
         except Exception as exc:
             if not self._is_cancelled(session_id):
-                self._ui_error(f"Error: {exc}")
+                self._ui_error(format_actionable_error(exc, context="stt"))
         finally:
             with self.lock:
                 if self._session_id == session_id:
@@ -299,7 +310,7 @@ class AutoType:
         except Exception:
             pass
 
-        terms = load_terms(BASE_DIR / "data" / "vocabulary.json")
+        terms = load_terms(get_data_dir() / "vocabulary.json")
 
         # -- layer 1: deterministic normalizer (no LLM, no guessing) -----
         normalized = normalize_transcript(transcript, terms)
@@ -353,11 +364,13 @@ class AutoType:
             self._ui_processing("Cleaning...")
             log.info(f"-> Processing with {config.llm_provider().upper()} ({config.llm_model()})...")
             t0 = time.monotonic()
+            llm_error = None
             try:
                 final_text = self.processor.process(
                     normalized, system_prompt, user_payload=user_payload)
                 final_text = self._validate_output(final_text, normalized)
             except Exception as exc:
+                llm_error = exc
                 log.warning(f"LLM cleaning failed, using normalized text: {exc}")
                 final_text = normalized
             llm_dur = time.monotonic() - t0
@@ -378,7 +391,11 @@ class AutoType:
         insert_dur = time.monotonic() - t0
         if self._is_cancelled(session_id):
             return
-        self._ui_done()
+        if "llm_error" in locals() and llm_error is not None:
+            actionable = format_actionable_error(llm_error, context="llm")
+            self._ui_error(actionable, title="Notice")
+        else:
+            self._ui_done()
         after_stop = t_after_stop and (time.monotonic() - t_after_stop)
         log.info(
             f"Timing: record={record_dur:.1f}s stt={stt_dur:.2f}s "
@@ -447,6 +464,15 @@ class AutoType:
             session_id = self._session_id
             self.streaming = True
         try:
+            from audio.devices import list_input_devices
+
+            if not list_input_devices():
+                self._ui_error(format_actionable_error("No microphone detected", context="mic"))
+                with self.lock:
+                    if self._session_id == session_id:
+                        self.streaming = False
+                return
+
             from stt.factory import create_stream_session
 
             log.info(f"Stream engine: {config.stt_backend()}")
@@ -455,7 +481,7 @@ class AutoType:
             with self.lock:
                 if self._session_id == session_id:
                     self.streaming = False
-            self._ui_error(f"Stream failed: {exc}")
+            self._ui_error(format_actionable_error(exc, context="stt"))
             return
         if self._is_cancelled(session_id):
             session.abort()
@@ -468,7 +494,7 @@ class AutoType:
             with self.lock:
                 if self._session_id == session_id:
                     self.streaming = False
-            self._ui_error(f"Microphone error: {exc}")
+            self._ui_error(format_actionable_error(exc, context="mic"))
             return
         if self._is_cancelled(session_id):
             mic.stop()
@@ -591,7 +617,7 @@ class AutoType:
             self.process_and_insert(transcript, record_dur, stt_dur, session_id=session_id)
         except Exception as exc:
             if not self._is_cancelled(session_id):
-                self._ui_error(f"Error: {exc}")
+                self._ui_error(format_actionable_error(exc, context="stt"))
         finally:
             try:
                 if session is not None:
@@ -605,19 +631,37 @@ class AutoType:
                     self.busy = False
 
 
-def main():
-    setup_logging(BASE_DIR / "logs")
+def main(debug: bool = False):
+    setup_logging(debug=debug)
     import os
+
+    # Check X11 session
+    session_type = os.environ.get("XDG_SESSION_TYPE", "").strip().lower()
+    display = os.environ.get("DISPLAY", "").strip()
+    if session_type == "wayland" or not display:
+        err = "Session is not X11 (Select X11 at login screen)"
+        log.error(err)
+        notify(APP_NAME, err)
+        raise SystemExit(1)
+
     try:
-        (BASE_DIR / "data" / "daemon.pid").write_text(str(os.getpid()))
+        (get_data_dir() / "daemon.pid").write_text(str(os.getpid()))
     except Exception:
         pass
+
+    # Prompt user on first run if no cloud STT key or local model is configured
+    try:
+        from ui.first_run import check_and_show_first_run
+        check_and_show_first_run()
+    except Exception as exc:
+        log.warning("First-run prompt check encountered error: %s", exc)
+
     try:
         app = AutoType()
-    except RuntimeError as exc:
-        # Missing keys / bad .env: clear message, no traceback crash.
-        log.error(exc)
-        notify(APP_NAME, str(exc))
+    except Exception as exc:
+        actionable = format_actionable_error(exc)
+        log.error(actionable)
+        notify(APP_NAME, actionable)
         raise SystemExit(1)
 
     # Overlay lives on the GTK (main) thread; it polls the live mic level.
@@ -694,7 +738,7 @@ def main():
         except Exception:
             pass
         try:
-            (BASE_DIR / "data" / "daemon.pid").unlink(missing_ok=True)
+            (get_data_dir() / "daemon.pid").unlink(missing_ok=True)
         except Exception:
             pass
 

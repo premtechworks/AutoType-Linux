@@ -50,6 +50,10 @@ CSS = b"""
     border: 1px solid rgba(37, 230, 195, 0.22);
 }
 
+.overlay-card.error-state {
+    border: 1px solid rgba(249, 115, 22, 0.65);
+}
+
 .status-title {
     color: #F4F8FA;
     font-size: 18px;
@@ -260,11 +264,11 @@ class Overlay:
     def show_processing(self, text="Working..."):
         GLib.idle_add(self._do_show, "processing", text)
 
-    def show_error(self, text="Something went wrong"):
-        GLib.idle_add(self._do_show, "error", text)
+    def show_error(self, text="Something went wrong", title="Error", timeout_ms=2500):
+        GLib.idle_add(self._do_show, "error", text, title)
         if self._hide_id:
             GLib.source_remove(self._hide_id)
-        self._hide_id = GLib.timeout_add(2500, self._auto_hide)
+        self._hide_id = GLib.timeout_add(timeout_ms, self._auto_hide)
 
     def hide(self):
         GLib.idle_add(self._do_hide)
@@ -277,7 +281,7 @@ class Overlay:
     # Internals (Run on the GTK main thread)
     # -------------------------------------------------------------------------
 
-    def _do_show(self, state, text):
+    def _do_show(self, state, text, title="Error"):
         self.state = state
         now = time.monotonic()
 
@@ -306,7 +310,7 @@ class Overlay:
             self.stop_btn.set_visible(True)
 
         elif state == "error":
-            self.status_title = "Error"
+            self.status_title = title or "Error"
             self.status_subtitle = text
             self.timer_label.set_text("")
             self.stop_btn.set_visible(False)
@@ -316,6 +320,12 @@ class Overlay:
 
         self._place_above_taskbar()
         self.win.show_all()
+
+        if state == "error":
+            self.win.get_style_context().add_class("error-state")
+            self.stop_btn.set_visible(False)
+        else:
+            self.win.get_style_context().remove_class("error-state")
 
         if state == "error":
             self.stop_btn.set_visible(False)
