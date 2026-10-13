@@ -1,0 +1,4 @@
+include models/manifest.json
+recursive-exclude models *.gguf
+recursive-exclude * *.tar.gz
+recursive-exclude * *.bin
