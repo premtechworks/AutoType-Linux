@@ -1,3 +1,12 @@
+autotype (1.1.0-1) unstable; urgency=medium
+
+  * New upstream release v1.1.0.
+  * Add keep_in_clipboard option to retain dictated text on the clipboard.
+  * Add autotype launch subcommand and desktop-entry launcher; the daemon
+    now refuses a second instance.
+
+ -- Prem kumar Gara <premtechworks@gmail.com>  Wed, 11 Nov 2026 00:00:00 +0530
+
 autotype (1.0.0-1) unstable; urgency=medium
 
   * Initial release of AutoType v1.0.0.

@@ -1,7 +1,7 @@
 name: autotype
 arch: amd64
 platform: linux
-version: 1.0.0
+version: 1.1.0
 release: 1
 section: utils
 priority: optional

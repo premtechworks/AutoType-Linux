@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-11
+
+### Added
+- `keep_in_clipboard` option (`KEEP_IN_CLIPBOARD`) to leave the final dictated text on the clipboard instead of restoring the previous contents.
+- `autotype launch` subcommand and `autotype-launch.sh` helper: start the daemon when needed, then open the settings window.
+
+### Changed
+- The desktop entry now runs `autotype launch`, so double-clicking AutoType on demand starts the daemon.
+- The daemon refuses a second instance instead of fighting over the Right-Alt hotkey.
+
 ## [1.0.0] - 2026-10-10
 
 ### Added

@@ -23,6 +23,11 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="1.1.0" date="2026-11-11">
+      <description>
+        <p>AutoType v1.1.0 adds a keep-in-clipboard option and an on-demand launcher that starts the daemon and opens settings.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-10-10">
       <description>
         <p>AutoType v1.0.0 official release featuring unified CLI, XDG configuration, multi-backend STT, and pause-resilient dictation.</p>
