@@ -68,6 +68,7 @@ install -D -m 0644 icons/hicolor/scalable/apps/io.github.premtechworks.AutoType.
 %{python3_sitelib}/app.py
 %{python3_sitelib}/config.py
 %{python3_sitelib}/settings_gui.py
+%{python3_sitelib}/__pycache__/
 %{_datadir}/applications/io.github.premtechworks.AutoType.desktop
 %{_metainfodir}/io.github.premtechworks.AutoType.metainfo.xml
 %{_datadir}/icons/hicolor/scalable/apps/io.github.premtechworks.AutoType.svg
