@@ -7,7 +7,7 @@ AppDir:
     id: io.github.premtechworks.AutoType
     name: AutoType
     icon: io.github.premtechworks.AutoType
-    version: 1.0.0
+    version: 1.1.0
     exec: usr/bin/autotype
     exec_args: "$@"
 
@@ -34,4 +34,4 @@ AppDir:
 
 AppImage:
   arch: x86_64
-  file_name: AutoType-1.0.0-x86_64.AppImage
+  file_name: AutoType-1.1.0-x86_64.AppImage

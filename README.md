@@ -20,43 +20,43 @@ AutoType is a fast, flexible, open-source Linux voice-typing assistant and backg
 
 ## Download & Installation
 
-AutoType v1.0.0 release packages can be downloaded from the [GitHub Releases](https://github.com/premtechworks/AutoType-Linux/releases) page.
+AutoType v1.1.0 release packages can be downloaded from the [GitHub Releases](https://github.com/premtechworks/AutoType-Linux/releases) page.
 
 ### 1. Debian / Ubuntu / Linux Mint (`.deb`)
 
 ```bash
-sudo apt install ./autotype_1.0.0_amd64.deb
+sudo apt install ./autotype_1.1.0_amd64.deb
 ```
 
 *Terminal alternative (dpkg):*
 
 ```bash
-sudo dpkg -i autotype_1.0.0_amd64.deb && sudo apt-get install -f
+sudo dpkg -i autotype_1.1.0_amd64.deb && sudo apt-get install -f
 ```
 
 ### 2. Fedora / RHEL (`.rpm`)
 
 ```bash
-sudo dnf install ./autotype-1.0.0-1.x86_64.rpm
+sudo dnf install ./autotype-1.1.0-1.x86_64.rpm
 ```
 
 *Terminal alternative (rpm):*
 
 ```bash
-sudo rpm -ivh autotype-1.0.0-1.x86_64.rpm
+sudo rpm -ivh autotype-1.1.0-1.x86_64.rpm
 ```
 
 ### 3. AppImage
 
 ```bash
-chmod +x AutoType-1.0.0-x86_64.AppImage
-./AutoType-1.0.0-x86_64.AppImage
+chmod +x AutoType-1.1.0-x86_64.AppImage
+./AutoType-1.1.0-x86_64.AppImage
 ```
 
 ### 4. Flatpak
 
 ```bash
-flatpak install --user ./AutoType-1.0.0.flatpak
+flatpak install --user ./AutoType-1.1.0.flatpak
 flatpak run io.github.premtechworks.AutoType
 ```
 
@@ -132,11 +132,11 @@ sha256sum -c SHA256SUMS
 ## Upgrading & Uninstalling
 
 ### Debian / Ubuntu / Linux Mint
-- **Upgrade**: `sudo apt install --only-upgrade ./autotype_1.0.0_amd64.deb`
+- **Upgrade**: `sudo apt install --only-upgrade ./autotype_1.1.0_amd64.deb`
 - **Uninstall**: `sudo apt remove autotype`
 
 ### Fedora
-- **Upgrade**: `sudo dnf upgrade ./autotype-1.0.0-1.x86_64.rpm`
+- **Upgrade**: `sudo dnf upgrade ./autotype-1.1.0-1.x86_64.rpm`
 - **Uninstall**: `sudo dnf remove autotype`
 
 ### AppImage

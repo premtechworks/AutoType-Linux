@@ -1,5 +1,5 @@
 Name:           autotype
-Version:        1.0.0
+Version:        1.1.0
 Release:        1%{?dist}
 Summary:        Voice-typing daemon for Linux Mint XFCE on X11
 
@@ -49,5 +49,8 @@ install -D -m 0644 icons/hicolor/scalable/apps/io.github.premtechworks.AutoType.
 %{_datadir}/icons/hicolor/scalable/apps/io.github.premtechworks.AutoType.svg
 
 %changelog
+* Wed Nov 11 2026 Prem kumar Gara <premtechworks@gmail.com> - 1.1.0-1
+- Add keep_in_clipboard option and the autotype launch subcommand
+
 * Tue Oct 13 2026 Prem kumar Gara <premtechworks@gmail.com> - 1.0.0-1
 - Initial package release

@@ -92,7 +92,9 @@ echo "Debian package created: ${DIST_DIR}/autotype_${VERSION}_amd64.deb"
 
 # 2. Build .rpm
 echo "--- Building RPM package (autotype-${VERSION}-1.x86_64.rpm) ---"
-if command -v rpmbuild &>/dev/null; then
+# The spec is written for RPM-based distributions (python3-devel, %py3_build),
+# so a stray rpmbuild on a Debian host cannot build it.
+if command -v rpmbuild &>/dev/null && [ -f /etc/redhat-release ]; then
     rpmbuild -bb autotype.spec --define "_sourcedir ${REPO_ROOT}" --define "_rpmdir ${DIST_DIR}"
 elif [ -n "${CONTAINER_CMD}" ]; then
     "${CONTAINER_CMD}" run --rm -v "${REPO_ROOT}:/src" -w /src fedora:latest bash -c \
