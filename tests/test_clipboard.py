@@ -84,6 +84,38 @@ def test_fallback_to_xclip_when_gtk_unavailable(monkeypatch):
     assert any(cmd == ["xclip", "-selection", "clipboard"] for cmd in runs)
 
 
+def test_insert_text_restores_clipboard_by_default(monkeypatch):
+    """Default insert_text pastes, then puts the previous clipboard back."""
+    calls = []
+    monkeypatch.setattr(clipboard, "get_clipboard", lambda: "previous text")
+    monkeypatch.setattr(clipboard, "copy_to_clipboard", lambda t: calls.append(("copy", t)))
+    monkeypatch.setattr(clipboard, "paste_into_active_window", lambda: calls.append(("paste", None)))
+    monkeypatch.setattr(clipboard, "restore_clipboard", lambda d: calls.append(("restore", d)))
+    monkeypatch.setattr(clipboard.time, "sleep", lambda _s: None)
+
+    clipboard.insert_text("dictated text")
+
+    assert ("copy", "dictated text") in calls
+    assert ("paste", None) in calls
+    assert ("restore", "previous text") in calls
+
+
+def test_insert_text_keeps_text_when_requested(monkeypatch):
+    """keep_in_clipboard=True leaves the dictated text on the clipboard."""
+    calls = []
+    monkeypatch.setattr(clipboard, "get_clipboard", lambda: "previous text")
+    monkeypatch.setattr(clipboard, "copy_to_clipboard", lambda t: calls.append(("copy", t)))
+    monkeypatch.setattr(clipboard, "paste_into_active_window", lambda: calls.append(("paste", None)))
+    monkeypatch.setattr(clipboard, "restore_clipboard", lambda d: calls.append(("restore", d)))
+    monkeypatch.setattr(clipboard.time, "sleep", lambda _s: None)
+
+    clipboard.insert_text("dictated text", keep_in_clipboard=True)
+
+    assert ("copy", "dictated text") in calls
+    assert ("paste", None) in calls
+    assert not any(call[0] == "restore" for call in calls)
+
+
 def test_get_selected_text_fallback_to_xclip(monkeypatch):
     """Verify get_selected_text falls back to xclip primary when GTK fails."""
     monkeypatch.setattr(clipboard, "_get_gtk_primary", lambda: None)

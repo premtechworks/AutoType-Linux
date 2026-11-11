@@ -215,6 +215,16 @@ class SettingsWindow(PreferencesWindow):
             "notify::active", self._on_save_rec_toggled)
         group.add(self.save_rec_row)
 
+        self.keep_clip_row = _switch_row(
+            "Keep Text in Clipboard",
+            "Leave the dictated text on the clipboard instead of "
+            "restoring what was there before.",
+            self.env.get("KEEP_IN_CLIPBOARD", "false").lower()
+            in ("1", "true", "yes"))
+        self.keep_clip_row.switch.connect(
+            "notify::active", self._on_keep_clip_toggled)
+        group.add(self.keep_clip_row)
+
     def _on_mode_changed(self, combo):
         mode = self._combo_value(combo)
         self.prefix_row.entry.set_text(self.prefix_row.entry.get_text().strip()
@@ -230,6 +240,11 @@ class SettingsWindow(PreferencesWindow):
         store.save_env({"SAVE_RECORDINGS":
                         "true" if switch.get_active() else "false"})
         self.say("Recording preference saved. Restart daemon to apply.")
+
+    def _on_keep_clip_toggled(self, switch, _pspec):
+        store.save_env({"KEEP_IN_CLIPBOARD":
+                        "true" if switch.get_active() else "false"})
+        self.say("Clipboard preference saved. Restart daemon to apply.")
 
     # -- Vocabulary --------------------------------------------------------
     def _build_vocab_section(self, group):

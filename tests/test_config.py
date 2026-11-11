@@ -46,6 +46,7 @@ def test_config_defaults(isolated_xdg):
     assert config.command_prefix() == "computer"
     assert config.save_recordings() is False
     assert config.use_custom_prompt() is False
+    assert config.keep_in_clipboard() is False
     assert config.mic_device() == ""
 
 

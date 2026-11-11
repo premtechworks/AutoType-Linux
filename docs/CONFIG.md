@@ -42,6 +42,7 @@ Every setting maps 1:1 between its environment variable representation and its `
 | `command_prefix` | `COMMAND_PREFIX` | string | `"computer"` | Trigger keyword for voice command detection. |
 | `save_recordings` | `SAVE_RECORDINGS` | boolean | `false` | When `true`, saves audio WAV files to the recordings directory for inspection. |
 | `use_custom_prompt` | `USE_CUSTOM_PROMPT` | boolean | `false` | When `true`, overrides built-in system prompt with user custom prompt. |
+| `keep_in_clipboard` | `KEEP_IN_CLIPBOARD` | boolean | `false` | When `true`, the final text stays on the clipboard instead of restoring the previous contents. |
 | `custom_prompt_file` | `CUSTOM_PROMPT_FILE` | string | `""` | Optional explicit path to custom prompt file (defaults to `custom_prompt.txt` in data dir). |
 | `mic_device` | `MIC_DEVICE` | string | `""` | Preferred microphone device name (empty string follows system default / PipeWire). |
 
@@ -96,6 +97,7 @@ processing_mode = "clean"
 command_prefix = "computer"
 save_recordings = false
 use_custom_prompt = false
+keep_in_clipboard = false
 mic_device = ""
 
 [llm]

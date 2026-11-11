@@ -198,15 +198,20 @@ def paste_into_active_window() -> None:
     )
 
 
-def insert_text(text: str) -> None:
-    """Copy, paste, then restore the user's previous clipboard contents."""
-    previous = get_clipboard()
+def insert_text(text: str, keep_in_clipboard: bool = False) -> None:
+    """Copy, paste, then restore the user's previous clipboard contents.
+
+    With keep_in_clipboard=True the final text stays on the clipboard (the
+    previous contents are not restored), so it can be pasted again elsewhere.
+    """
+    previous = None if keep_in_clipboard else get_clipboard()
     copy_to_clipboard(text)
     try:
         paste_into_active_window()
     finally:
-        time.sleep(0.4)  # let the target app consume the paste first
-        try:
-            restore_clipboard(previous)
-        except Exception:
-            pass
+        if not keep_in_clipboard:
+            time.sleep(0.4)  # let the target app consume the paste first
+            try:
+                restore_clipboard(previous)
+            except Exception:
+                pass

@@ -73,6 +73,8 @@ def build_migrated_config(env: dict[str, str], gui: dict[str, Any]) -> dict[str,
         cfg["general"]["save_recordings"] = env["SAVE_RECORDINGS"].lower() in ("1", "true", "yes")
     if "USE_CUSTOM_PROMPT" in env:
         cfg["general"]["use_custom_prompt"] = env["USE_CUSTOM_PROMPT"].lower() in ("1", "true", "yes")
+    if "KEEP_IN_CLIPBOARD" in env:
+        cfg["general"]["keep_in_clipboard"] = env["KEEP_IN_CLIPBOARD"].lower() in ("1", "true", "yes")
     if "CUSTOM_PROMPT_FILE" in env:
         cfg["general"]["custom_prompt_file"] = env["CUSTOM_PROMPT_FILE"]
     if "MIC_DEVICE" in env:

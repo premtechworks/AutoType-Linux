@@ -387,7 +387,7 @@ class AutoType:
             return
 
         t0 = time.monotonic()
-        insert_text(final_text)
+        insert_text(final_text, keep_in_clipboard=config.keep_in_clipboard())
         insert_dur = time.monotonic() - t0
         if self._is_cancelled(session_id):
             return

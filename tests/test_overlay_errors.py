@@ -248,7 +248,7 @@ def test_llm_unreachable_pastes_raw_and_notifies(isolated_xdg, monkeypatch):
     app.processor.process = fake_process
 
     pasted = []
-    monkeypatch.setattr("app.insert_text", lambda text: pasted.append(text))
+    monkeypatch.setattr("app.insert_text", lambda text, **kwargs: pasted.append(text))
 
     # Run pipeline with clean mode
     app.processing_mode = "clean"

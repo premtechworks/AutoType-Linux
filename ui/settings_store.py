@@ -54,6 +54,7 @@ GLOBAL_FIELDS = (
     "SAVE_RECORDINGS",
     "MIC_DEVICE",
     "USE_CUSTOM_PROMPT",
+    "KEEP_IN_CLIPBOARD",
 )
 
 DEFAULTS = {
@@ -81,6 +82,7 @@ DEFAULTS = {
     "OMNIROUTE_MODEL": "auto",
     "MIC_DEVICE": "",
     "USE_CUSTOM_PROMPT": "false",
+    "KEEP_IN_CLIPBOARD": "false",
 }
 
 
@@ -102,6 +104,8 @@ def load_env() -> dict[str, str]:
             raw["SAVE_RECORDINGS"] = str(gen["save_recordings"]).lower()
         if "use_custom_prompt" in gen:
             raw["USE_CUSTOM_PROMPT"] = str(gen["use_custom_prompt"]).lower()
+        if "keep_in_clipboard" in gen:
+            raw["KEEP_IN_CLIPBOARD"] = str(gen["keep_in_clipboard"]).lower()
         if "custom_prompt_file" in gen:
             raw["CUSTOM_PROMPT_FILE"] = str(gen["custom_prompt_file"])
         if "mic_device" in gen:
@@ -236,6 +240,8 @@ def save_env(updates: dict[str, str]) -> None:
         gen["save_recordings"] = updates["SAVE_RECORDINGS"].lower() in ("1", "true", "yes")
     if "USE_CUSTOM_PROMPT" in updates:
         gen["use_custom_prompt"] = updates["USE_CUSTOM_PROMPT"].lower() in ("1", "true", "yes")
+    if "KEEP_IN_CLIPBOARD" in updates:
+        gen["keep_in_clipboard"] = updates["KEEP_IN_CLIPBOARD"].lower() in ("1", "true", "yes")
     if "CUSTOM_PROMPT_FILE" in updates:
         gen["custom_prompt_file"] = updates["CUSTOM_PROMPT_FILE"]
     if "MIC_DEVICE" in updates:

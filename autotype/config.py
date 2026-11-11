@@ -350,6 +350,11 @@ def use_custom_prompt() -> bool:
     return _get_bool("USE_CUSTOM_PROMPT", "general", "use_custom_prompt", False)
 
 
+def keep_in_clipboard() -> bool:
+    """Keep the final text on the clipboard instead of restoring the previous contents."""
+    return _get_bool("KEEP_IN_CLIPBOARD", "general", "keep_in_clipboard", False)
+
+
 def custom_prompt_path() -> str:
     custom = _get_str("CUSTOM_PROMPT_FILE", "general", "custom_prompt_file", "")
     if custom:

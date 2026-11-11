@@ -12,7 +12,7 @@ AutoType is a fast, flexible, open-source Linux voice-typing assistant and backg
 - **LLM Cleanup Providers**: Intelligent rewriting and filler removal with OpenAI, Anthropic Claude, xAI Grok, DeepSeek, Qwen, NVIDIA NIM, Groq, Ollama (local), or custom endpoints.
 - **Voice Commands**: Prefix dictation with `"computer"` for one-shot controls (`computer raw`, `computer code`, `computer email`, `computer cancel`).
 - **Deterministic Spoken Punctuation & Lists**: Real-time normalization for punctuation (`"comma"`, `"period"`, `"new line"`) and bulleted/numbered lists without hallucination.
-- **Clipboard Restoration**: Captures prior clipboard state and restores text or images immediately after pasting.
+- **Clipboard Restoration**: Captures prior clipboard state and restores text or images immediately after pasting. Set `keep_in_clipboard = true` to leave the dictated text on the clipboard instead.
 - **Floating Glassmorphic Overlay**: Dark translucent widget with vector microphone indicator, 42-bar glowing waveform visualizer, live transcript strip, and an integrated **square stop button (`■`)** for instant cancellation midway.
 - **X11 Display Server**: Native keystroke injection via `python-xlib` and GTK3 clipboard integration (X11 only).
 
@@ -277,7 +277,7 @@ Start your dictation with your configured `COMMAND_PREFIX` (default: `"computer"
 
 - **Local Secrets**: Stored at `~/.config/autotype/config.toml` with `0600` permissions.
 - **100% Offline Mode**: Pairing Local STT (`parakeet_stream`) with Local LLM (`ollama`) keeps 100% of speech and text on-device.
-- **Clipboard Preservation**: Original clipboard text and images are automatically restored after every paste.
+- **Clipboard Preservation**: Original clipboard text and images are automatically restored after every paste. Enable `keep_in_clipboard` if you would rather keep the dictated text on the clipboard.
 
 ---
 
