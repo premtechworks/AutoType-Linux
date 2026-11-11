@@ -92,21 +92,41 @@ echo "Debian package created: ${DIST_DIR}/autotype_${VERSION}_amd64.deb"
 
 # 2. Build .rpm
 echo "--- Building RPM package (autotype-${VERSION}-1.x86_64.rpm) ---"
-# The spec is written for RPM-based distributions (python3-devel, %py3_build),
-# so a stray rpmbuild on a Debian host cannot build it.
-if command -v rpmbuild &>/dev/null && [ -f /etc/redhat-release ]; then
-    rpmbuild -bb autotype.spec --define "_sourcedir ${REPO_ROOT}" --define "_rpmdir ${DIST_DIR}"
-elif [ -n "${CONTAINER_CMD}" ]; then
-    "${CONTAINER_CMD}" run --rm -v "${REPO_ROOT}:/src" -w /src fedora:latest bash -c \
-        "dnf install -y rpm-build python3-devel && rpmbuild -bb autotype.spec && cp ~/rpmbuild/RPMS/*/*.rpm /src/dist/"
-else
-    echo "Warning: Neither rpmbuild nor container runtime found. Checking nfpm..."
-    if command -v nfpm &>/dev/null; then
-        nfpm package --packager rpm --target "${DIST_DIR}/autotype-${VERSION}-1.x86_64.rpm"
-    else
-        echo "RPM build skipped or requires container runtime."
-    fi
+# rpmbuild needs the sources as a release tarball, which the checkout is not.
+RPM_SRCDIR="$(mktemp -d /tmp/autotype-rpm.XXXXXX)"
+if git -C "${REPO_ROOT}" rev-parse --git-dir &>/dev/null; then
+    git -C "${REPO_ROOT}" archive --format=tar.gz \
+        --prefix="autotype-${VERSION}/" \
+        -o "${RPM_SRCDIR}/autotype-${VERSION}.tar.gz" HEAD
 fi
+
+# Only an RPM host has the python3-devel macros this spec expects; a stray
+# rpmbuild on a Debian host cannot build it.
+if command -v rpmbuild &>/dev/null && [ -f /etc/redhat-release ] && [ -f "${RPM_SRCDIR}/autotype-${VERSION}.tar.gz" ]; then
+    rpmbuild -bb "${REPO_ROOT}/autotype.spec" \
+        --define "_sourcedir ${RPM_SRCDIR}" \
+        --define "_rpmdir ${DIST_DIR}"
+elif [ -n "${CONTAINER_CMD}" ]; then
+    "${CONTAINER_CMD}" run --rm -v "${REPO_ROOT}:/src" -w /src fedora:latest bash -c "
+        set -euo pipefail
+        dnf install -y rpm-build python3-devel tar gzip git
+        git config --global --add safe.directory /src
+        git archive --format=tar.gz --prefix=autotype-${VERSION}/ \
+            -o /tmp/autotype-${VERSION}.tar.gz HEAD
+        rpmbuild -bb autotype.spec \
+            --define '_sourcedir /tmp' \
+            --define '_rpmdir /src/dist' \
+            --define '_topdir /tmp/rpmbuild'
+    "
+elif command -v nfpm &>/dev/null; then
+    nfpm package --packager rpm --target "${DIST_DIR}/autotype-${VERSION}-1.x86_64.rpm"
+else
+    echo "Warning: no rpmbuild host, container runtime, or nfpm; skipping RPM."
+fi
+
+# rpmbuild writes into an arch subdirectory; the release expects flat files.
+find "${DIST_DIR}" -mindepth 2 -name '*.rpm' -exec mv -n {} "${DIST_DIR}/" \; 2>/dev/null || true
+rm -rf "${RPM_SRCDIR}"
 
 # 3. Build AppImage
 echo "--- Building AppImage (AutoType-${VERSION}-x86_64.AppImage) ---"
