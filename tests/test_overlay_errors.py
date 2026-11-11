@@ -172,7 +172,7 @@ def test_main_startup_missing_display_exit(monkeypatch):
     assert "Session is not X11" in notified[0][1]
 
 
-def test_main_startup_init_failure_exit(monkeypatch):
+def test_main_startup_init_failure_exit(isolated_xdg, monkeypatch):
     from app import main
 
     monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
@@ -182,6 +182,7 @@ def test_main_startup_init_failure_exit(monkeypatch):
         raise RuntimeError("Missing DEEPGRAM_API_KEY in .env.")
 
     monkeypatch.setattr("app.AutoType", fake_autotype)
+    monkeypatch.setattr("ui.first_run.check_and_show_first_run", lambda: False)
 
     notified = []
     monkeypatch.setattr("app.notify", lambda app_name, msg: notified.append((app_name, msg)))

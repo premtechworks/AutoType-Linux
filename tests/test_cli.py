@@ -158,3 +158,15 @@ def test_cli_daemon_debug_flag(monkeypatch):
     cli.main(["daemon", "--debug"])
     assert called == [True]
 
+
+def test_cli_launch_flags_forwarded(monkeypatch):
+    called = []
+
+    def fake_run_launch(debug: bool = False, no_settings: bool = False):
+        called.append((debug, no_settings))
+        return 0
+
+    monkeypatch.setattr(cli, "run_launch", fake_run_launch)
+    cli.main(["launch", "--debug", "--no-settings"])
+    assert called == [(True, True)]
+

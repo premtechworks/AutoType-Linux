@@ -121,6 +121,12 @@ sha256sum -c SHA256SUMS
    autotype daemon
    ```
 
+7. **Start-and-Configure in One Step**:
+   `autotype launch` starts the daemon if it is not running and then opens the settings window. If a daemon is already running it shows an "already running" dialog instead of starting a second one. In a source checkout, `./autotype-launch.sh` does the same and can be double-clicked from the file manager.
+   ```bash
+   autotype launch
+   ```
+
 ---
 
 ## Upgrading & Uninstalling

@@ -22,6 +22,8 @@ build/
 .pytest_cache/
 
 config.toml
+# Local double-click launcher (contains absolute paths for this checkout).
+AutoType.desktop
 *.gguf
 *.bin
 AppDir/

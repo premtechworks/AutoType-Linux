@@ -83,6 +83,13 @@ autotype daemon --debug
 autotype settings
 ```
 
+### Launcher (desktop entry)
+```bash
+autotype launch
+```
+Starts the daemon if it is not running, then opens the settings window. If a
+daemon is already running it shows an "already running" dialog instead.
+
 ---
 
 ## 5. Running the Test Suite

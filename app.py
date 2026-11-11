@@ -644,6 +644,18 @@ def main(debug: bool = False):
         notify(APP_NAME, err)
         raise SystemExit(1)
 
+    # Refuse a second instance: two daemons would fight over the hotkey.
+    try:
+        from autotype.launcher import running_pid
+        existing = running_pid()
+    except Exception:
+        existing = None
+    if existing is not None:
+        err = f"{APP_NAME} is already running (PID {existing})"
+        log.error(err)
+        notify(APP_NAME, err)
+        raise SystemExit(1)
+
     try:
         (get_data_dir() / "daemon.pid").write_text(str(os.getpid()))
     except Exception:

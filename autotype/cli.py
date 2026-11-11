@@ -16,6 +16,13 @@ def run_daemon(debug: bool = False) -> int:
     return 0
 
 
+def run_launch(debug: bool = False, no_settings: bool = False) -> int:
+    """Start the daemon if needed, then open the settings window."""
+    from autotype.launcher import run as launcher_run
+
+    return launcher_run(debug=debug, open_settings=not no_settings)
+
+
 def run_settings() -> int:
     """Launch the AutoType GTK settings GUI."""
     from settings_gui import main as settings_main
@@ -202,6 +209,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable debug logging output.",
     )
 
+    # launch
+    launch_parser = subparsers.add_parser(
+        "launch",
+        help="Start the daemon (if not running) and open the settings window.",
+    )
+    launch_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Start the daemon with debug logging.",
+    )
+    launch_parser.add_argument(
+        "--no-settings",
+        action="store_true",
+        help="Only start the daemon; do not open the settings window.",
+    )
+
     # settings
     subparsers.add_parser(
         "settings",
@@ -270,6 +293,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.subcommand == "daemon":
         return run_daemon(debug=getattr(args, "debug", False))
+    elif args.subcommand == "launch":
+        return run_launch(
+            debug=getattr(args, "debug", False),
+            no_settings=getattr(args, "no_settings", False),
+        )
     elif args.subcommand == "settings":
         return run_settings()
     elif args.subcommand == "version":
